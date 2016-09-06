@@ -7,7 +7,7 @@ all:
 #  Application file
 #
 APPLNAME = tinyip
-APPL_CXXOBJS = ethernet.o ip.o arp.o icmp.o udp.o tcp.o
+APPL_CXXOBJS = ethernet.o ip.o arp.o icmp.o udp.o tcp.o led.o util.o
 USE_CXX = true
 APPL_CFG = $(APPLNAME).cfg
 
@@ -43,5 +43,4 @@ KERNEL_LIB = .
 include $(SRCDIR)/Makefile.asp
 
 install:
-	mv asp.bin tinyip.bin
-	cp tinyip.bin /media/daiki/MBED
+	cp asp.bin /media/daiki/MBED

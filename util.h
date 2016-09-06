@@ -1,10 +1,15 @@
-#ifdef BYTE_ORDER == BIG_ENDIAN
+#pragma once
+
+#define LITTLE_ENDIAN
+
+#ifdef BIG_ENDIAN
 #define hton16(val) val
 #define ntoh16(val) val
 #define hton32(val) val
 #define ntoh32(val) val
 
-#else
+#endif // BIG_ENDIAN
+#ifdef LITTLE_ENDIAN
 #define hton16(val) ((uint16_t) ( \
     ((val) << 8) | ((val) >> 8) ))
 
@@ -22,4 +27,5 @@
     (((val) & 0x0000ff00) <<  8) | \
     (((val) & 0x00ff0000) >>  8) | \
     (((val) & 0xff000000) >> 24) ))
-#endif // BIG_ENDIAN
+#endif // LITTLE_ENDIAN
+

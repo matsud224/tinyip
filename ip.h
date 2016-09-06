@@ -1,14 +1,19 @@
+#pragma once
+
 #include <stdint.h>
+
+#define LITTLE_ENDIAN
 
 struct in_addr{
 	uint32_t s_addr;
 };
 
 struct ip_hdr{
-#if BYTE_ORDER == LITTLE_ENDIAN
-	unsigned ip_hl:4, ip_v:4;
-#else
+#ifdef BIG_ENDIAN
 	unsigned ip_v:4, ip_hl:4;
+#endif
+#ifdef LITTLE_ENDIAN
+	unsigned ip_hl:4, ip_v:4;
 #endif // BIG_ENDIAN
 	uint8_t ip_tos;
 	uint16_t ip_len;
@@ -25,3 +30,7 @@ struct ip_hdr{
 #define IP_DE 0x4000
 #define IP_MF 0x2000
 #define IP_OFFMASK 0x1fff
+
+
+void ip_receive(int size, char *buf);
+
