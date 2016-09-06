@@ -1,0 +1,5 @@
+aspカーネルディレクトリ内のMakefile.aspの
+APPL_CXXOBJS = $(APPLNAME).o
+のところを
+APPL_CXXOBJS += $(APPLNAME).o
+へ変更する必要あり
