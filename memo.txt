@@ -3,3 +3,8 @@ APPL_CXXOBJS = $(APPLNAME).o
 のところを
 APPL_CXXOBJS += $(APPLNAME).o
 へ変更する必要あり
+
+-----------------------------------
+
+mbed-src/targets/hal/TARGET_RENESAS/TARGET_RZ_A1H/ethernetext_api.h
+でextern "C"をつける必要あり

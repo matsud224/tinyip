@@ -42,5 +42,8 @@ include $(MBED_LIB_DIR)/Makefile.mbd
 KERNEL_LIB = .
 include $(SRCDIR)/Makefile.asp
 
+
 install:
 	cp asp.bin /media/daiki/MBED
+
+all_and_install: all install

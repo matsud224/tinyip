@@ -9,7 +9,7 @@ struct icmp{
 	uint16_t icmp_cksum;
 	union{
 		uint8_t ih_pptr;
-		struct in_addr ih_gwaddr;
+		uint8_t ih_gwaddr[IP_ADDR_LEN];
 		struct ih_idseq{
 			int16_t icd_id;
 			int16_t icd_seq;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ethernet.h"
+#include "ip.h"
 
 struct arp_hdr{
 	uint16_t ar_hrd;
@@ -19,9 +20,9 @@ struct arp_hdr{
 struct ether_arp{
 	struct arp_hdr ea_hdr;
 	uint8_t arp_sha[ETHER_ADDR_LEN];
-	uint8_t arp_spa[4];
+	uint8_t arp_spa[IP_ADDR_LEN];
 	uint8_t arp_tha[ETHER_ADDR_LEN];
-	uint8_t arp_tpa[4];
+	uint8_t arp_tpa[IP_ADDR_LEN];
 };
 
 #define ARPHRD_ETHER 1
@@ -30,4 +31,4 @@ struct ether_arp{
 #define ARPOP_REQUEST 1
 #define ARPOP_REPLY 2
 
-void arp_receive(int size, char *buf);
+void arp_receive(ether_flame *flm);

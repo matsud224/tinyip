@@ -1,12 +1,14 @@
 #pragma once
 
 #include <stdint.h>
+#include "ethernet.h"
 
 #define LITTLE_ENDIAN
 
-struct in_addr{
-	uint32_t s_addr;
-};
+#define IP_ADDR_LEN 4
+
+uint8_t* get_ipaddr();
+
 
 struct ip_hdr{
 #ifdef BIG_ENDIAN
@@ -22,8 +24,8 @@ struct ip_hdr{
 	uint8_t ip_ttl;
 	uint8_t ip_p;
 	uint16_t ip_sum;
-	struct in_addr ip_src;
-	struct in_addr ip_dst;
+	uint32_t ip_src;
+	uint32_t ip_dst;
 };
 
 #define IP_RF 0x8000
@@ -32,5 +34,5 @@ struct ip_hdr{
 #define IP_OFFMASK 0x1fff
 
 
-void ip_receive(int size, char *buf);
+void ip_receive(ether_flame *flm);
 

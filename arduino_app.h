@@ -18,13 +18,13 @@
 #define MAIN_TASK_STACK_SIZE 1024
 #endif  /* MAIN_TASK_STACK_SIZE */
 
-#ifndef ETHERNET_TASK_PRI
-#define ETHERNET_TASK_PRI  8
-#endif /* ETHERNET_TASK_PRI */
+#ifndef ETHERRECV_TASK_PRI
+#define ETHERRECV_TASK_PRI  8
+#endif /* ETHERRECV_TASK_PRI */
 
-#ifndef ETHERNET_TASK_STACK_SIZE
-#define ETHERNET_TASK_STACK_SIZE 1024
-#endif  /* ETHERNET_TASK_STACK_SIZE */
+#ifndef ETHERRECV_TASK_STACK_SIZE
+#define ETHERRECV_TASK_STACK_SIZE 1024
+#endif  /* ETHERRECV_TASK_STACK_SIZE */
 
 #ifndef IP_TASK_PRI
 #define IP_TASK_PRI  7
@@ -88,7 +88,7 @@ extern "C" {
 
 extern void	cyclic_handler(intptr_t exinf);
 extern void main_task(intptr_t exinf);
-extern void ethernet_task(intptr_t exinf);
+extern void etherrecv_task(intptr_t exinf);
 extern void ip_task(intptr_t exinf);
 extern void arp_task(intptr_t exinf);
 extern void icmp_task(intptr_t exinf);

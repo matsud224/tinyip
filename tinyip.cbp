@@ -19,6 +19,11 @@
 				<Option type="0" />
 				<Option compiler="gcc" />
 			</Target>
+			<Target title="all_and_install">
+				<Option output="tinyip" prefix_auto="1" extension_auto="1" />
+				<Option type="0" />
+				<Option compiler="gcc" />
+			</Target>
 			<Target title="clean">
 				<Option output="tinyip" prefix_auto="1" extension_auto="1" />
 				<Option type="0" />
@@ -51,8 +56,17 @@
 		</Unit>
 		<Unit filename="ethernet.cpp">
 			<Option compilerVar="CC" />
+			<Option target="all" />
+			<Option target="install" />
+			<Option target="clean" />
+			<Option target="depend" />
 		</Unit>
-		<Unit filename="ethernet.h" />
+		<Unit filename="ethernet.h">
+			<Option target="all" />
+			<Option target="install" />
+			<Option target="clean" />
+			<Option target="depend" />
+		</Unit>
 		<Unit filename="icmp.cpp">
 			<Option compilerVar="CC" />
 			<Option target="all" />
@@ -75,9 +89,24 @@
 			<Option target="depend" />
 			<Option target="clean" />
 		</Unit>
-		<Unit filename="led.cpp" />
-		<Unit filename="led.h" />
-		<Unit filename="memo.txt" />
+		<Unit filename="led.cpp">
+			<Option target="all" />
+			<Option target="install" />
+			<Option target="clean" />
+			<Option target="depend" />
+		</Unit>
+		<Unit filename="led.h">
+			<Option target="all" />
+			<Option target="install" />
+			<Option target="clean" />
+			<Option target="depend" />
+		</Unit>
+		<Unit filename="memo.txt">
+			<Option target="all" />
+			<Option target="install" />
+			<Option target="clean" />
+			<Option target="depend" />
+		</Unit>
 		<Unit filename="tcp.cpp">
 			<Option compilerVar="CC" />
 			<Option target="all" />
@@ -108,8 +137,17 @@
 		</Unit>
 		<Unit filename="util.cpp">
 			<Option compilerVar="CC" />
+			<Option target="all" />
+			<Option target="install" />
+			<Option target="clean" />
+			<Option target="depend" />
 		</Unit>
-		<Unit filename="util.h" />
+		<Unit filename="util.h">
+			<Option target="all" />
+			<Option target="install" />
+			<Option target="clean" />
+			<Option target="depend" />
+		</Unit>
 		<Extensions>
 			<envvars />
 			<code_completion />
