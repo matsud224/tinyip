@@ -1,21 +1,20 @@
-#include <kernel.h>
-#include "arp.h"
-#include "ethernet.h"
-#include "ip.h"
-#include "util.h"
 #include "arduino_app.h"
+
 #include <cstring>
 #include <map>
-#include "kernel_cfg.h"
+
+#include "arp.h"
+#include "ethernet.h"
+#include "util.h"
+#include "netconf.h"
+#include "protohdr.h"
 
 using namespace std;
 
 map<uint32_t, uint64_t> arptable;
 
-void arp_receive(ether_flame *flm){
+void arp_process(ether_flame *flm, ether_arp *earp){
 	ether_hdr *ehdr = (ether_hdr*)flm->buf;
-	ether_arp *earp = (ether_arp*)(ehdr+1);
-	char *p=(char*)(earp->arp_tpa);
 	//正しいヘッダかチェック
 	if(flm->size < sizeof(ether_hdr)+sizeof(ether_arp) ||
 		ntoh16(earp->arp_hrd) != ARPHRD_ETHER ||
@@ -28,9 +27,7 @@ void arp_receive(ether_flame *flm){
 	switch(ntoh16(earp->arp_op)){
 	case ARPOP_REQUEST:
 		LOG("ARP REQUEST for %s", ipaddr2str(earp->arp_tpa));
-		for(int i=0;i<4;i++)
-			LOG("%02X",*p++);
-		if(memcmp(earp->arp_tpa, get_ipaddr(),IP_ADDR_LEN)==0){
+		if(memcmp(earp->arp_tpa, IPADDR,IP_ADDR_LEN)==0){
 			//相手のIPアドレスとMACアドレスを登録
 			arptable[ipaddr2uint32(earp->arp_spa)] = macaddr2uint64(earp->arp_sha);
             LOG("arp entry registered:\n");
@@ -38,13 +35,13 @@ void arp_receive(ether_flame *flm){
 			//パケットを改変
 			memcpy(earp->arp_tha, earp->arp_sha, ETHER_ADDR_LEN);
 			memcpy(earp->arp_tpa, earp->arp_spa, IP_ADDR_LEN);
-			memcpy(earp->arp_sha, get_macaddr(), ETHER_ADDR_LEN);
-			memcpy(earp->arp_spa, get_ipaddr(), IP_ADDR_LEN);
+			memcpy(earp->arp_sha, MACADDR, ETHER_ADDR_LEN);
+			memcpy(earp->arp_spa, IPADDR, IP_ADDR_LEN);
             earp->arp_op = hton16(ARPOP_REPLY);
             memcpy(ehdr->ether_dhost, ehdr->ether_shost, ETHER_ADDR_LEN);
-            memcpy(ehdr->ether_shost, get_macaddr(), ETHER_ADDR_LEN);
+            memcpy(ehdr->ether_shost, MACADDR, ETHER_ADDR_LEN);
             //送り返す
-			send_ethernet(flm);
+			ethernet_send(flm);
 		}
 		break;
 	case ARPOP_REPLY:
@@ -53,8 +50,12 @@ void arp_receive(ether_flame *flm){
 	}
 
 exit:
-	delete [] flm;
+	delete flm;
 	return;
+}
+
+void resolve_arp(){
+
 }
 
 void arp_task(intptr_t exinf) {

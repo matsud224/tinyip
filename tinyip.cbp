@@ -54,6 +54,7 @@
 			<Option target="depend" />
 			<Option target="clean" />
 		</Unit>
+		<Unit filename="envdep.h" />
 		<Unit filename="ethernet.cpp">
 			<Option compilerVar="CC" />
 			<Option target="all" />
@@ -89,24 +90,16 @@
 			<Option target="depend" />
 			<Option target="clean" />
 		</Unit>
-		<Unit filename="led.cpp">
-			<Option target="all" />
-			<Option target="install" />
-			<Option target="clean" />
-			<Option target="depend" />
-		</Unit>
-		<Unit filename="led.h">
-			<Option target="all" />
-			<Option target="install" />
-			<Option target="clean" />
-			<Option target="depend" />
-		</Unit>
 		<Unit filename="memo.txt">
 			<Option target="all" />
 			<Option target="install" />
 			<Option target="clean" />
 			<Option target="depend" />
 		</Unit>
+		<Unit filename="netconf.cpp" />
+		<Unit filename="netconf.h" />
+		<Unit filename="netlib.h" />
+		<Unit filename="protohdr.h" />
 		<Unit filename="tcp.cpp">
 			<Option compilerVar="CC" />
 			<Option target="all" />

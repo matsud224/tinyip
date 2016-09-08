@@ -4,16 +4,14 @@
 #include "syssvc/serial.h"
 #include "syssvc/syslog.h"
 #include "kernel_cfg.h"
-#include <stdint.h>
-
 #include "syssvc/logtask.h"
 #include "arduino_app.h"
 #include "mbed.h"
 
-#include "led.h"
 #include "ethernet.h"
 #include "util.h"
 #include "ip.h"
+#include "netconf.h"
 
 
 InterruptIn user_button0(USER_BUTTON0);
@@ -31,10 +29,8 @@ svc_perror(const char *file, int_t line, const char *expr, ER ercd)
 
 #define	SVC_PERROR(expr)	svc_perror(__FILE__, __LINE__, #expr, (expr))
 
-int led_state = 0;
 void user_button0_push() {
-	led_state=(led_state+1)%16;
-	mcled_change(led_state);
+	mcled_change(COLOR_OFF);
     return;
 }
 
@@ -48,17 +44,18 @@ main_task(intptr_t exinf) {
 	syslog(LOG_NOTICE, "Sample program starts (exinf = %d).", (int_t) exinf);
 
 	//Ethernetコントローラ割り込みの設定
-	init_ethernet();
+	ethernet_initialize();
 
-	syslog(LOG_NOTICE, "MAC ADDR: %s",macaddr2str(get_macaddr()));
-	syslog(LOG_NOTICE, "IP ADDR: %s",ipaddr2str(get_ipaddr()));
+	syslog(LOG_NOTICE, "MAC ADDR: %s",macaddr2str(MACADDR));
+	syslog(LOG_NOTICE, "IP ADDR: %s",ipaddr2str(IPADDR));
 
 	/* add your code here */
 	user_button0.fall(user_button0_push);
+	sta_cyc(CYCHDR1);
 
-	//sta_cyc(CYCHDR1);
+	act_tsk(IPFRAG_TIMEOUT_TASK);
+	sta_cyc(IPFRAG_TIMEOUT_CYC);
 	act_tsk(ETHERRECV_TASK);
-	act_tsk(IP_TASK);
 	act_tsk(ARP_TASK);
 }
 
@@ -69,5 +66,10 @@ main_task(intptr_t exinf) {
 void cyclic_handler(intptr_t exinf)
 {
 	/* add your code here */
-
+	static bool led_state = false;
+	if(led_state)
+		redled_off();
+	else
+		redled_on();
+	led_state = !led_state;
 }

@@ -1,10 +1,5 @@
 #pragma once
 
-#include <stdint.h>
+#include "protohdr.h"
 
-struct udp_hdr{
-	uint16_t uh_sport;
-	uint16_t uh_dport;
-	uint16_t uh_ulen;
-	uint16_t sum;
-};
+void udp_process(ether_flame *flm, udp_hdr *uhdr);

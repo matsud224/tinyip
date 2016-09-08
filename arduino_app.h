@@ -1,6 +1,8 @@
 #ifndef _APP_H_
 #define _APP_H_
 
+#include <stdint.h>
+
 #define ADDITIONAL_LOOP_NUM 0 /* number of additional loops */
 
 /*
@@ -26,13 +28,13 @@
 #define ETHERRECV_TASK_STACK_SIZE 1024
 #endif  /* ETHERRECV_TASK_STACK_SIZE */
 
-#ifndef IP_TASK_PRI
-#define IP_TASK_PRI  7
-#endif /* IP_TASK_PRI */
+#ifndef IPFRAG_TIMEOUT_TASK_PRI
+#define IPFRAG_TIMEOUT_TASK_PRI  7
+#endif /* IPFRAG_TIMEOUT_TASK_PRI */
 
-#ifndef IP_TASK_STACK_SIZE
-#define IP_TASK_STACK_SIZE 1024
-#endif  /* ETHERNET_TASK_STACK_SIZE */
+#ifndef IPFRAG_TIMEOUT_TASK_STACK_SIZE
+#define IPFRAG_TIMEOUT_TASK_STACK_SIZE 1024
+#endif  /* IPFRAG_TIMEOUT_TASK_STACK_SIZE */
 
 #ifndef ARP_TASK_PRI
 #define ARP_TASK_PRI  7
@@ -82,6 +84,7 @@
  *  When you define a new handler/task in .cfg, add its prototype
  *  declaration here.
  */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -89,7 +92,8 @@ extern "C" {
 extern void	cyclic_handler(intptr_t exinf);
 extern void main_task(intptr_t exinf);
 extern void etherrecv_task(intptr_t exinf);
-extern void ip_task(intptr_t exinf);
+extern void ipfrag_timeout_task(intptr_t exinf);
+extern void ipfrag_timeout_cyc(intptr_t exinf);
 extern void arp_task(intptr_t exinf);
 extern void icmp_task(intptr_t exinf);
 extern void udp_task(intptr_t exinf);
