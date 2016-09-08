@@ -6,6 +6,9 @@
 #include <stdint.h>
 
 #include "ip.h"
+#include "icmp.h"
+#include "udp.h"
+#include "tcp.h"
 #include "util.h"
 #include "netconf.h"
 #include "protohdr.h"
@@ -140,7 +143,7 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 	//正しいヘッダかチェック
 	if(flm->size < sizeof(ether_hdr)+sizeof(ip_hdr) ||
 		iphdr->ip_v != 4 || iphdr->ip_hl < 5 ||
-		checksum((uint16_t*)iphdr, sizeof(ip_hdr)) != 0 ){
+		checksum((uint16_t*)iphdr, iphdr->ip_hl*4) != 0 ){
 		LOG("broken packet...");
 		goto exit;
 	}
@@ -233,14 +236,18 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 	switch(iphdr->ip_p){
 	case IPTYPE_ICMP:
 		mcled_change(COLOR_YELLOW);
+		icmp_process(flm, iphdr, (icmp*)(((uint8_t*)iphdr)+(iphdr->ip_hl*4)));
 		break;
 	case IPTYPE_TCP:
 		mcled_change(COLOR_LIGHTBLUE);
+		tcp_process(flm, iphdr, (tcp_hdr*)(((uint8_t*)iphdr)+(iphdr->ip_hl*4)));
 		break;
 	case IPTYPE_UDP:
 		mcled_change(COLOR_PINK);
+		udp_process(flm, iphdr, (udp_hdr*)(((uint8_t*)iphdr)+(iphdr->ip_hl*4)));
 		break;
 	}
+	return;
 
 exit:
 	delete flm;

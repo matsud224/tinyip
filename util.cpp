@@ -56,6 +56,29 @@ uint16_t checksum(uint16_t *data, int len){
 	return ~sum;
 }
 
+uint16_t checksum2(uint16_t *data1, uint16_t *data2, int len1, int len2){
+	uint32_t sum = 0;
+	for(; len1>1;len1-=2){
+		sum+=*data1++;
+		if(sum &0x80000000)
+			sum=(sum&0xffff)+(sum>>16);
+	}
+	for(; len2>1;len2-=2){
+		sum+=*data2++;
+		if(sum &0x80000000)
+			sum=(sum&0xffff)+(sum>>16);
+	}
+	if(len2 == 1){
+		uint16_t i=0;
+		*(uint8_t*)(&i)= *(uint8_t*)data2;
+		sum+=i;
+	}
+	while(sum>>16)
+		sum=(sum&0xffff)+(sum>>16);
+
+	return ~sum;
+}
+
 void ipaddr_hostpart(uint8_t *dst, uint8_t *addr, uint8_t *mask){
 	for(int i=0; i<IP_ADDR_LEN; i++)
 		dst[i] = addr[i] & ~mask[i];
@@ -84,3 +107,5 @@ void redled_off(){
 void redled_on(){
 	led_user = 0;
 }
+
+

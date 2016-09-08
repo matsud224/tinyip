@@ -98,8 +98,10 @@
 		</Unit>
 		<Unit filename="netconf.cpp" />
 		<Unit filename="netconf.h" />
+		<Unit filename="netlib.cpp" />
 		<Unit filename="netlib.h" />
 		<Unit filename="protohdr.h" />
+		<Unit filename="sockif.h" />
 		<Unit filename="tcp.cpp">
 			<Option compilerVar="CC" />
 			<Option target="all" />

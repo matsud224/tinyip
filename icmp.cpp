@@ -8,6 +8,6 @@ void icmp_task(intptr_t exinf) {
 
 }
 
-void icmp_process(ether_flame *flm, icmp *icmpdata){
+void icmp_process(ether_flame *flm, ip_hdr *iphdr, icmp *icmpdata){
 
 }

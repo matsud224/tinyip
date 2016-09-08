@@ -2,4 +2,4 @@
 
 #include "protohdr.h"
 
-void icmp_process(ether_flame *flm, icmp *icmpdata);
+void icmp_process(ether_flame *flm, ip_hdr *iphdr, icmp *icmpdata);

@@ -12,6 +12,7 @@
 #include "util.h"
 #include "ip.h"
 #include "netconf.h"
+#include "netlib.h"
 
 
 InterruptIn user_button0(USER_BUTTON0);
@@ -37,8 +38,7 @@ void user_button0_push() {
 /*
  *  Main task
  */
-void
-main_task(intptr_t exinf) {
+void main_task(intptr_t exinf) {
 	/* configure syslog */
 	SVC_PERROR(syslog_msk_log(LOG_UPTO(LOG_INFO), LOG_UPTO(LOG_EMERG)));
 	syslog(LOG_NOTICE, "Sample program starts (exinf = %d).", (int_t) exinf);
@@ -57,6 +57,22 @@ main_task(intptr_t exinf) {
 	sta_cyc(IPFRAG_TIMEOUT_CYC);
 	act_tsk(ETHERRECV_TASK);
 	act_tsk(ARP_TASK);
+
+	act_tsk(USER_TASK);
+}
+
+void user_task(intptr_t exinf){
+	LOG("user task start");
+	int s = socket(SOCK_DGRAM,  USER_TASK, USER_SEM);
+	bind(s, 1234);
+	static char buf[2048];
+	uint8_t fromaddr[IP_ADDR_LEN];
+	uint16_t fromport;
+	while(true){
+		int len = recvfrom(s, buf, 2048, 0, fromaddr, &fromport);
+		LOG("%s : %d --- %d bytes received.", ipaddr2str(fromaddr), fromport, len);
+		dly_tsk(5000);
+	}
 }
 
 

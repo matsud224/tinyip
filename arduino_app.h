@@ -20,6 +20,14 @@
 #define MAIN_TASK_STACK_SIZE 1024
 #endif  /* MAIN_TASK_STACK_SIZE */
 
+#ifndef USER_TASK_PRI
+#define USER_TASK_PRI  5
+#endif /* USER_TASK_PRI */
+
+#ifndef USER_TASK_STACK_SIZE
+#define USER_TASK_STACK_SIZE 1024
+#endif  /* USER_TASK_STACK_SIZE */
+
 #ifndef ETHERRECV_TASK_PRI
 #define ETHERRECV_TASK_PRI  8
 #endif /* ETHERRECV_TASK_PRI */
@@ -91,6 +99,7 @@ extern "C" {
 
 extern void	cyclic_handler(intptr_t exinf);
 extern void main_task(intptr_t exinf);
+extern void user_task(intptr_t exinf);
 extern void etherrecv_task(intptr_t exinf);
 extern void ipfrag_timeout_task(intptr_t exinf);
 extern void ipfrag_timeout_cyc(intptr_t exinf);

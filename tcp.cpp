@@ -16,6 +16,6 @@ void tcp_task(intptr_t exinf) {
 }
 
 
-void tcp_process(ether_flame *flm, tcp_hdr *thdr){
+void tcp_process(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr){
 
 }
