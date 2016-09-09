@@ -76,7 +76,12 @@ void user_task(intptr_t exinf){
 	}
 	*/
 	int s = socket(SOCK_DGRAM, USER_TASK, USER_DRSEM, USER_DSSEM, USER_SRSEM, USER_SSSEM);
-	static char buf[] = "The quick brown fox jumps over the lazy dog.";
+	static char buf[2345];
+	static char pat[4] = {0xDE, 0xAD, 0xBE, 0xEF};
+	for(int i=0;i<2340;i+=4){
+		memcpy(buf+i, pat, 4);
+	}
+	buf[2344] = 0x12;
 	uint8_t to_addr[IP_ADDR_LEN] = {192, 168, 0, 5};
 	while(true){
 		slp_tsk();

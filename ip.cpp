@@ -343,17 +343,17 @@ void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
 		//フラグメント化必要
 		//フラグメント化に際して、IPペイロードを分割後のパケットにコピーしないといけない
 		while(remainlen > 0){
-			hdrstack *ippkt = new hdrstack;
-			ippkt->next = NULL;
 			uint32_t thispkt_totallen = MIN(remainlen+sizeof(ip_hdr), MTU);
 			uint32_t thispkt_datalen = thispkt_totallen - sizeof(ip_hdr);
 			uint16_t offset = datalen - remainlen;
+			hdrstack *ippkt = new hdrstack;
+			ippkt->next = NULL;
 			remainlen -= thispkt_datalen;
 			ippkt->size = thispkt_totallen;
 			ippkt->buf = new char[ippkt->size];
 			prep_iphdr((ip_hdr*)ippkt->buf, thispkt_totallen, currentid, (remainlen>0)?true:false
 						, offset, proto, dstaddr);
-			hdrstack_cpy((char*)(((ip_hdr*)ippkt->buf)+1), ippkt, offset, thispkt_datalen);
+			hdrstack_cpy((char*)(((ip_hdr*)ippkt->buf)+1), data, offset, thispkt_datalen);
 
 			//ルーティング(dstaddrは書き換えられる可能性有)
 			ip_routing(dstaddr);

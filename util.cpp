@@ -143,10 +143,13 @@ void hdrstack_cpy(char *dst, hdrstack *src, int start, int len){
 	//開始位置が分かった(ptr->buf+(remain-1))
 
 	int remain_copy = len; //コピーの残りオクテット数
+	int offset = 0;
 	while(remain_copy > 0){
-		memcpy(dst, ptr->buf+(remain-1), MIN(remain_copy, ptr->size));
-		remain_copy -= MIN(remain_copy, ptr->size);
+		memcpy(dst+offset, ptr->buf+(remain-1), MIN(remain_copy, ptr->size-(remain-1)));
+		remain_copy -= MIN(remain_copy, ptr->size-(remain-1));
+		offset += MIN(remain_copy, ptr->size-(remain-1));
 		ptr = ptr->next;
+		remain = 1;
 	}
 	return;
 }
