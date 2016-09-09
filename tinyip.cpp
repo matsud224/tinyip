@@ -64,7 +64,7 @@ void main_task(intptr_t exinf) {
 void user_task(intptr_t exinf){
 	LOG("user task start");
 	int s = socket(SOCK_DGRAM,  USER_TASK, USER_SEM);
-	bind(s, 1234);
+	bind(s, 10000);
 	static char buf[2048];
 	uint8_t fromaddr[IP_ADDR_LEN];
 	uint16_t fromport;

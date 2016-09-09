@@ -33,6 +33,10 @@ uint16_t udp_checksum(ip_hdr *iphdr, udp_hdr *uhdr){
 }
 
 void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
+	//LOG("src:%s",ipaddr2str(iphdr->ip_src));
+	//LOG("dst:%s",ipaddr2str(iphdr->ip_dst));
+	//LOG("sport:%d, dport:%d",ntoh16(uhdr->uh_sport),ntoh16(uhdr->uh_dport));
+	//LOG("len:%d, sum:%d",ntoh16(uhdr->uh_ulen),ntoh16(uhdr->sum));
 	//ブロードキャスト/マルチキャストアドレスは不許可
 	if(memcmp(iphdr->ip_dst, IPADDR, IP_ADDR_LEN) != 0){
 		LOG("udp packet discarded(bad address).");
@@ -40,8 +44,12 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 	}
 	//ヘッダ検査
 	if(flm->size < sizeof(ether_hdr)+(iphdr->ip_hl*4)+sizeof(udp_hdr) ||
-		(uhdr->sum != 0 && udp_checksum(iphdr, uhdr) != 0)){
-		LOG("udp packet discarded(bad header).");
+		flm->size != sizeof(ether_hdr)+(iphdr->ip_hl*4)+ntoh16(uhdr->uh_ulen)){
+		LOG("udp packet discarded(length error).");
+		goto exit;
+	}
+	if(uhdr->sum != 0 && udp_checksum(iphdr, uhdr) != 0){
+		LOG("udp packet discarded(checksum error).");
 		goto exit;
 	}
 	LOG("udp received");

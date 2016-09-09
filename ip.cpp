@@ -94,7 +94,8 @@ static reasminfo *get_reasminfo(uint8_t ip_src[], uint8_t ip_dst[], uint8_t ip_p
 	while(ptr!=NULL){
 		if(memcmp(ptr->id.ip_src,ip_src,IP_ADDR_LEN)==0 &&
 			memcmp(ptr->id.ip_dst,ip_dst,IP_ADDR_LEN)==0 &&
-			ptr->id.ip_pro==ip_pro && ptr->id.ip_id==ip_id){
+			ptr->id.ip_pro==ip_pro && ptr->id.ip_id==ip_id /*&&
+			ptr->timeout > 0*/){
 			return ptr;
 		}
 	}
@@ -142,6 +143,7 @@ static void modify_inf_holelist(hole **holepp, uint16_t newsize){
 void ip_process(ether_flame *flm, ip_hdr *iphdr){
 	//正しいヘッダかチェック
 	if(flm->size < sizeof(ether_hdr)+sizeof(ip_hdr) ||
+		flm->size < sizeof(ether_hdr)+iphdr->ip_hl*4 ||
 		iphdr->ip_v != 4 || iphdr->ip_hl < 5 ||
 		checksum((uint16_t*)iphdr, iphdr->ip_hl*4) != 0 ){
 		LOG("broken packet...");
@@ -221,11 +223,19 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 			//パケットを構築
 			flm=new ether_flame;
 			flm->size = info->headerlen+info->datalen;
+			LOG("total %d/%d",info->headerlen,info->datalen);
 			flm->buf = new char[flm->size];
-			memcpy(flm->buf,info->beginningflame,info->headerlen);
+			memcpy(flm->buf,info->beginningflame->buf,info->headerlen);
 			char *origin = flm->buf + info->headerlen;
-            for(fragment *fptr=info->fragmentlist;fptr!=NULL;fptr=fptr->next)
-				memcpy(origin+fptr->first,fptr->flm+info->headerlen,fptr->last-fptr->first+1);
+			int total=0;
+            for(fragment *fptr=info->fragmentlist;fptr!=NULL;fptr=fptr->next){
+				LOG("frag %d/%d %02X",fptr->first,fptr->last,*(((uint8_t*)(fptr->flm->buf))+info->headerlen));
+				memcpy(origin+fptr->first,((uint8_t*)(fptr->flm->buf))+info->headerlen,fptr->last-fptr->first+1);
+				total+=fptr->last-fptr->first+1;
+            }
+            //flmを上書きしたので、iphdrも修正必要
+            iphdr = (ip_hdr*)(flm->buf+sizeof(ether_hdr));
+            //info->timeout=0;
 		}else{
 			sig_sem(IPFRAG_TIMEOUT_SEM);
 			return;
@@ -235,15 +245,15 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 
 	switch(iphdr->ip_p){
 	case IPTYPE_ICMP:
-		mcled_change(COLOR_YELLOW);
+		//mcled_change(COLOR_YELLOW);
 		icmp_process(flm, iphdr, (icmp*)(((uint8_t*)iphdr)+(iphdr->ip_hl*4)));
 		break;
 	case IPTYPE_TCP:
-		mcled_change(COLOR_LIGHTBLUE);
+		//mcled_change(COLOR_LIGHTBLUE);
 		tcp_process(flm, iphdr, (tcp_hdr*)(((uint8_t*)iphdr)+(iphdr->ip_hl*4)));
 		break;
 	case IPTYPE_UDP:
-		mcled_change(COLOR_PINK);
+		//mcled_change(COLOR_PINK);
 		udp_process(flm, iphdr, (udp_hdr*)(((uint8_t*)iphdr)+(iphdr->ip_hl*4)));
 		break;
 	}
