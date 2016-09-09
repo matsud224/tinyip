@@ -56,11 +56,15 @@ void redled_on(void);
     (((val) & 0xff000000) >> 24) ))
 #endif // LITTLE_ENDIAN
 
+#define IPADDR_TO_UINT32(val) (*((uint32_t*)(val)))
+
 char *macaddr2str(uint8_t ma[]);
 char *ipaddr2str(uint8_t ia[]);
 
+/*
 uint64_t macaddr2uint64(const uint8_t mac[]);
 uint32_t ipaddr2uint32(const uint8_t ip[]);
+*/
 
 uint16_t checksum(uint16_t *data, int len);
 //1en1は偶数でなくてはならない
@@ -68,3 +72,9 @@ uint16_t checksum2(uint16_t *data1, uint16_t *data2, int len1, int len2);
 
 void ipaddr_hostpart(uint8_t *dst, uint8_t *addr, uint8_t *mask);
 void ipaddr_networkpart(uint8_t *dst, uint8_t *addr, uint8_t *mask);
+
+uint16_t udp_checksum(ip_hdr *iphdr, udp_hdr *uhdr);
+
+uint32_t hdrstack_totallen(hdrstack *target);
+void hdrstack_cpy(char *dst, hdrstack *src, int start, int len);
+

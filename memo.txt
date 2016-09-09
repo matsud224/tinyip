@@ -13,3 +13,9 @@ mbed-src/targets/hal/TARGET_RENESAS/TARGET_RZ_A1H/ethernetext_api.h
 
 タスク（関数）でスタックサイズを超えないようにしないといけない。
 バッファをとったりするとすぐ指定の上限を超えてしまう
+
+-----------------------------------
+
+pkttoolsでフラグメント化の実験をするときの注意
+pkt-correctではフラグメント後のIPペイロード内は修正してくれない
+pkt-correntしてからpkt-fragmentするべき

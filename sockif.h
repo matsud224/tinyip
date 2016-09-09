@@ -5,14 +5,16 @@
 #include <stdint.h>
 
 #include "protohdr.h"
-
-#define MAX_SOCKET 256
+#include "netconf.h"
 
 
 struct socket_t{
     int type;
     ID ownertsk;
-    ID ownersem;
+    ID drsem; //データグラム受信キュー用
+    ID dssem; //データグラム送信キュー用
+    ID srsem; //ストリーム受信バッファ用
+    ID sssem; //ストリーム送信バッファ用
     uint16_t my_port;
 	uint8_t dest_ipaddr[IP_ADDR_LEN];
     uint16_t dest_port;
@@ -22,10 +24,12 @@ struct socket_t{
     int recv_front,recv_back;
     int send_front,send_back;
 
+    bool recv_waiting; //受信待機中か
+
     union{
     	struct{
     		ether_flame **recv; //「ether_flameのポインタ」の配列
-			ether_flame **send;
+			hdrstack **send;
     	} dgram_queue;
     	struct{
 			char *recv;

@@ -36,21 +36,13 @@
 #define ETHERRECV_TASK_STACK_SIZE 1024
 #endif  /* ETHERRECV_TASK_STACK_SIZE */
 
-#ifndef IPFRAG_TIMEOUT_TASK_PRI
-#define IPFRAG_TIMEOUT_TASK_PRI  7
-#endif /* IPFRAG_TIMEOUT_TASK_PRI */
+#ifndef TIMEOUT_10SEC_TASK_PRI
+#define TIMEOUT_10SEC_TASK_PRI  7
+#endif /* TIMEOUT_10SEC_TASK_PRI */
 
-#ifndef IPFRAG_TIMEOUT_TASK_STACK_SIZE
-#define IPFRAG_TIMEOUT_TASK_STACK_SIZE 1024
-#endif  /* IPFRAG_TIMEOUT_TASK_STACK_SIZE */
-
-#ifndef ARP_TASK_PRI
-#define ARP_TASK_PRI  7
-#endif /* ARP_TASK_PRI */
-
-#ifndef ARP_TASK_STACK_SIZE
-#define ARP_TASK_STACK_SIZE 1024
-#endif  /* ARP_TASK_STACK_SIZE */
+#ifndef TIMEOUT_10SEC_TASK_STACK_SIZE
+#define TIMEOUT_10SEC_TASK_STACK_SIZE 1024
+#endif  /* TIMEOUT_10SEC_TASK_STACK_SIZE */
 
 #ifndef ICMP_TASK_PRI
 #define ICMP_TASK_PRI  6
@@ -59,14 +51,6 @@
 #ifndef ICMP_TASK_STACK_SIZE
 #define ICMP_TASK_STACK_SIZE 1024
 #endif  /* ICMP_TASK_STACK_SIZE */
-
-#ifndef UDP_TASK_PRI
-#define UDP_TASK_PRI  5
-#endif /* UDP_TASK_PRI */
-
-#ifndef UDP_TASK_STACK_SIZE
-#define UDP_TASK_STACK_SIZE 1024
-#endif  /* UDP_TASK_STACK_SIZE */
 
 #ifndef TCP_TASK_PRI
 #define TCP_TASK_PRI  5
@@ -101,11 +85,9 @@ extern void	cyclic_handler(intptr_t exinf);
 extern void main_task(intptr_t exinf);
 extern void user_task(intptr_t exinf);
 extern void etherrecv_task(intptr_t exinf);
-extern void ipfrag_timeout_task(intptr_t exinf);
-extern void ipfrag_timeout_cyc(intptr_t exinf);
-extern void arp_task(intptr_t exinf);
+extern void timeout_10sec_task(intptr_t exinf);
+extern void timeout_10sec_cyc(intptr_t exinf);
 extern void icmp_task(intptr_t exinf);
-extern void udp_task(intptr_t exinf);
 extern void tcp_task(intptr_t exinf);
 
 #ifdef __cplusplus

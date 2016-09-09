@@ -6,6 +6,8 @@
 #include "util.h"
 #include "protohdr.h"
 
+#define MIN(x,y) ((x)<(y)?(x):(y))
+
 using namespace std;
 
 char *macaddr2str(uint8_t ma[]){
@@ -22,6 +24,7 @@ char *ipaddr2str(uint8_t ia[]){
 	return str;
 }
 
+/*
 uint64_t macaddr2uint64(const uint8_t mac[]){
 	uint64_t val = 0;
 	for(int i=ETHER_ADDR_LEN-1, j=8; i>=0; i--, j*=2){
@@ -37,6 +40,7 @@ uint32_t ipaddr2uint32(const uint8_t ip[]){
 	}
 	return val;
 }
+*/
 
 uint16_t checksum(uint16_t *data, int len){
 	uint32_t sum = 0;
@@ -108,4 +112,41 @@ void redled_on(){
 	led_user = 0;
 }
 
+uint16_t udp_checksum(ip_hdr *iphdr, udp_hdr *uhdr){
+	udp_pseudo_hdr pseudo;
+	memcpy(pseudo.up_src, iphdr->ip_src, IP_ADDR_LEN);
+	memcpy(pseudo.up_dst, iphdr->ip_dst, IP_ADDR_LEN);
+	pseudo.up_type = 17;
+	pseudo.up_void = 0;
+	pseudo.up_len = uhdr->uh_ulen; //UDPヘッダ+UDPペイロードの長さ
 
+	return checksum2((uint16_t*)(&pseudo), (uint16_t*)uhdr, sizeof(udp_pseudo_hdr), ntoh16(uhdr->uh_ulen));
+}
+
+uint32_t hdrstack_totallen(hdrstack *target){
+	uint32_t len=0;
+	while(target!=NULL){
+		len+=target->size;
+		target=target->next;
+	}
+	return len;
+}
+
+void hdrstack_cpy(char *dst, hdrstack *src, int start, int len){
+	int remain = start+1;
+	hdrstack *ptr = src;
+
+	while(remain > ptr->size){
+		remain -= ptr->size;
+		ptr = ptr->next;
+	}
+	//開始位置が分かった(ptr->buf+(remain-1))
+
+	int remain_copy = len; //コピーの残りオクテット数
+	while(remain_copy > 0){
+		memcpy(dst, ptr->buf+(remain-1), MIN(remain_copy, ptr->size));
+		remain_copy -= MIN(remain_copy, ptr->size);
+		ptr = ptr->next;
+	}
+	return;
+}

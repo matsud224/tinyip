@@ -4,6 +4,9 @@
 
 #include "envdep.h"
 
+#define NULL 0
+
+
 //Ethernet
 #define ETHER_ADDR_LEN 6
 
@@ -13,11 +16,27 @@ struct ether_hdr{
 	uint16_t ether_type;
 };
 
+//受信したものはEthernetフレームをそのままたらい回しにする
 struct ether_flame{
 	int size;
 	char *buf;
 
 	~ether_flame(){
+		delete [] buf;
+	}
+};
+
+
+//送信時に上位層からだんだんヘッダを重ねていくために使う
+//   tcp/udpセグメント<-ipヘッダ<-ethernetヘッダ
+//のように連結リストで管理して、送信時には順番に書き出す
+//hdrstackという名前だが、ペイロードも統一して扱う
+struct hdrstack{
+	hdrstack *next;
+	int size;
+	char *buf;
+	~hdrstack(){
+		if(next!=NULL) delete next;
 		delete [] buf;
 	}
 };
@@ -71,7 +90,7 @@ struct arp_hdr{
 #define arp_op ea_hdr.ar_op
 
 struct ether_arp{
-	struct arp_hdr ea_hdr;
+	arp_hdr ea_hdr;
 	uint8_t arp_sha[ETHER_ADDR_LEN];
 	uint8_t arp_spa[IP_ADDR_LEN];
 	uint8_t arp_tha[ETHER_ADDR_LEN];
@@ -155,6 +174,22 @@ struct udp_hdr{
 	uint16_t uh_dport;
 	uint16_t uh_ulen;
 	uint16_t sum;
+};
+
+struct udp_pseudo_hdr{
+	uint8_t up_src[IP_ADDR_LEN];
+	uint8_t up_dst[IP_ADDR_LEN];
+	uint8_t up_void;
+	uint8_t up_type;
+	uint16_t up_len;
+};
+
+struct tcp_pseudo_hdr{
+	uint8_t tp_src[IP_ADDR_LEN];
+	uint8_t tp_dst[IP_ADDR_LEN];
+	uint8_t tp_void;
+	uint8_t tp_type;
+	uint8_t tp_len;
 };
 
 

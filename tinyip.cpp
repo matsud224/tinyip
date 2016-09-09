@@ -32,6 +32,7 @@ svc_perror(const char *file, int_t line, const char *expr, ER ercd)
 
 void user_button0_push() {
 	mcled_change(COLOR_OFF);
+	iwup_tsk(USER_TASK);
     return;
 }
 
@@ -53,17 +54,17 @@ void main_task(intptr_t exinf) {
 	user_button0.fall(user_button0_push);
 	sta_cyc(CYCHDR1);
 
-	act_tsk(IPFRAG_TIMEOUT_TASK);
-	sta_cyc(IPFRAG_TIMEOUT_CYC);
+	act_tsk(TIMEOUT_10SEC_TASK);
+	sta_cyc(TIMEOUT_10SEC_CYC);
 	act_tsk(ETHERRECV_TASK);
-	act_tsk(ARP_TASK);
 
 	act_tsk(USER_TASK);
 }
 
 void user_task(intptr_t exinf){
 	LOG("user task start");
-	int s = socket(SOCK_DGRAM,  USER_TASK, USER_SEM);
+	/*
+	int s = socket(SOCK_DGRAM,  USER_TASK, USER_DRSEM, USER_DSSEM, USER_SRSEM, USER_SSSEM);
 	bind(s, 10000);
 	static char buf[2048];
 	uint8_t fromaddr[IP_ADDR_LEN];
@@ -71,7 +72,15 @@ void user_task(intptr_t exinf){
 	while(true){
 		int len = recvfrom(s, buf, 2048, 0, fromaddr, &fromport);
 		LOG("%s : %d --- %d bytes received.", ipaddr2str(fromaddr), fromport, len);
-		dly_tsk(5000);
+		slp_tsk();
+	}
+	*/
+	int s = socket(SOCK_DGRAM, USER_TASK, USER_DRSEM, USER_DSSEM, USER_SRSEM, USER_SSSEM);
+	static char buf[] = "The quick brown fox jumps over the lazy dog.";
+	uint8_t to_addr[IP_ADDR_LEN] = {192, 168, 0, 5};
+	while(true){
+		slp_tsk();
+		int len = sendto(s, buf, sizeof(buf), 0, to_addr, 1234);
 	}
 }
 

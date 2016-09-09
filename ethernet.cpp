@@ -35,11 +35,13 @@ void etherrecv_task(intptr_t exinf) {
     while(true){
 		twai_sem(ETHERRECV_SEM, 10);
 		for(int i=0; i<16; i++){
+			wai_sem(ETHERIO_SEM);
 			int size = ethernet_receive();
 			if(size > sizeof(ether_hdr)){
 				LOG("--FLAME RECEIVED--");
 				char *buf = new char[size];
 				ethernet_read(buf, size);
+				sig_sem(ETHERIO_SEM);
 				ether_hdr *ehdr = (ether_hdr*)buf;
 				ether_flame *flm = new ether_flame;
 				flm->size = size;
@@ -57,13 +59,28 @@ void etherrecv_task(intptr_t exinf) {
 					delete flm;
 					break;
 				}
+			}else{
+				sig_sem(ETHERIO_SEM);
 			}
 		}
     }
 }
 
 void ethernet_send(ether_flame *flm){
+	wai_sem(ETHERIO_SEM);
 	ethernet_write(flm->buf, flm->size);
 	ethernet_send();
+	sig_sem(ETHERIO_SEM);
+	return;
+}
+
+void ethernet_send(hdrstack *flm){
+	wai_sem(ETHERIO_SEM);
+	while(flm!=NULL){
+		ethernet_write(flm->buf, flm->size);
+		flm=flm->next;
+	}
+	ethernet_send();
+	sig_sem(ETHERIO_SEM);
 	return;
 }
