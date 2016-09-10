@@ -94,7 +94,7 @@ void timeout_10sec_task(intptr_t exinf) {
 			if(arptable[i].timeout>0){
 				arptable[i].timeout--;
 				if(arptable[i].timeout == 0){
-					LOG("ARP entry: time out!");
+					//LOG("ARP entry: time out!");
 					if(arptable[i].pending!=NULL)
 						delete arptable[i].pending;
 					arptable[i].pending = NULL;
@@ -252,13 +252,13 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 			//パケットを構築
 			flm=new ether_flame;
 			flm->size = info->headerlen+info->datalen;
-			LOG("total %d/%d",info->headerlen,info->datalen);
+			//LOG("total %d/%d",info->headerlen,info->datalen);
 			flm->buf = new char[flm->size];
 			memcpy(flm->buf,info->beginningflame->buf,info->headerlen);
 			char *origin = flm->buf + info->headerlen;
 			int total=0;
             for(fragment *fptr=info->fragmentlist;fptr!=NULL;fptr=fptr->next){
-				LOG("frag %d/%d %02X",fptr->first,fptr->last,*(((uint8_t*)(fptr->flm->buf))+info->headerlen));
+				//LOG("frag %d/%d %02X",fptr->first,fptr->last,*(((uint8_t*)(fptr->flm->buf))+info->headerlen));
 				memcpy(origin+fptr->first,((uint8_t*)(fptr->flm->buf))+info->headerlen,fptr->last-fptr->first+1);
 				total+=fptr->last-fptr->first+1;
             }
@@ -336,13 +336,13 @@ void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
 
     //複数のフラグメントを送信する際、iphdr_itemはつなぐ先と内容を変えながら使い回せそうに思える
     //でも、送信はすぐに行われないかもしれない(MACアドレス解決待ち)ので使い回しはダメ
-    LOG("total : %d",sizeof(ip_hdr)+remainlen);
     if(sizeof(ip_hdr)+remainlen <= MTU){
 		hdrstack *iphdr_item = new hdrstack;
 		iphdr_item->size = sizeof(ip_hdr);
 		iphdr_item->buf = new char[sizeof(ip_hdr)];
 		prep_iphdr((ip_hdr*)iphdr_item->buf, sizeof(ip_hdr)+remainlen, currentid, false, 0, proto, dstaddr);
 		iphdr_item->next = data;
+
 		arp_send(iphdr_item, dstaddr, ETHERTYPE_IP);
     }else{
 		//フラグメント化必要

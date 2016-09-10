@@ -28,6 +28,10 @@ void ethernet_initialize(){
 	ethernet_set_link(-1,0);
 
 	ethernet_address((char *)MACADDR);
+
+	//リンク待ち
+	dly_tsk(1000); //1秒ぐらい待ったほうがいいみたい
+	while(!ethernet_link());
 }
 
 void etherrecv_task(intptr_t exinf) {
@@ -38,7 +42,7 @@ void etherrecv_task(intptr_t exinf) {
 			wai_sem(ETHERIO_SEM);
 			int size = ethernet_receive();
 			if(size > sizeof(ether_hdr)){
-				LOG("--FLAME RECEIVED--");
+				//LOG("--FLAME RECEIVED--");
 				char *buf = new char[size];
 				ethernet_read(buf, size);
 				sig_sem(ETHERIO_SEM);
@@ -48,11 +52,11 @@ void etherrecv_task(intptr_t exinf) {
 				flm->buf = buf;
 				switch(ntoh16(ehdr->ether_type)){
 				case ETHERTYPE_IP:
-					LOG("IP packet received");
+					//LOG("IP packet received");
 					ip_process(flm, (ip_hdr*)(ehdr+1));
 					break;
 				case ETHERTYPE_ARP:
-					LOG("ARP packet received");
+					//LOG("ARP packet received");
 					arp_process(flm, (ether_arp*)(ehdr+1));
 					break;
 				default:

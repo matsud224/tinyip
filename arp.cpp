@@ -57,6 +57,7 @@ static int search_arptable(uint32_t ipaddr, uint8_t macaddr[], hdrstack *flm){
 
 static void register_arptable(uint32_t ipaddr, uint8_t macaddr[]){
 	wai_sem(ARPTBL_SEM);
+	LOG("arp registered.");
 	//IPアドレスだけ登録されている（アドレス解決待ち）エントリを探す
 	for(int i=0;i<MAX_ARPTABLE;i++){
 		if(arptable[i].ipaddr == ipaddr && arptable[i].timeout>0){
@@ -71,6 +72,7 @@ static void register_arptable(uint32_t ipaddr, uint8_t macaddr[]){
 					ethernet_send(ptr->flm);
 					ptr=ptr->next;
 				}
+				LOG("sent pending flames.");
 				delete arptable[i].pending;
 				arptable[i].pending = NULL;
 			}
@@ -105,8 +107,8 @@ void arp_process(ether_flame *flm, ether_arp *earp){
 		if(memcmp(earp->arp_tpa, IPADDR,IP_ADDR_LEN)==0){
 			//相手のIPアドレスとMACアドレスを登録
 			register_arptable(IPADDR_TO_UINT32(earp->arp_spa), earp->arp_sha);
-            LOG("arp entry registered:");
-            LOG("\t%s -> %s", ipaddr2str(earp->arp_spa), macaddr2str(earp->arp_sha));
+            //LOG("arp entry registered:");
+            //LOG("\t%s -> %s", ipaddr2str(earp->arp_spa), macaddr2str(earp->arp_sha));
 			//パケットを改変
 			memcpy(earp->arp_tha, earp->arp_sha, ETHER_ADDR_LEN);
 			memcpy(earp->arp_tpa, earp->arp_spa, IP_ADDR_LEN);
@@ -165,7 +167,6 @@ void arp_send(hdrstack *packet, uint8_t dstaddr[], uint16_t proto){
 	switch(search_arptable(IPADDR_TO_UINT32(dstaddr), ehdr->ether_dhost, ehdr_item)){
 	case RESULT_FOUND:
 		//ARPテーブルに...ある時!
-		LOG("arptable: found");
 		ethernet_send(ehdr_item);
 		delete ehdr_item;
 		break;
@@ -173,7 +174,7 @@ void arp_send(hdrstack *packet, uint8_t dstaddr[], uint16_t proto){
 		//無いとき... はsearch_arptableが保留リストに登録しておいてくれる
 		//ARPリクエストを送信する
 		{
-			LOG("arptable: not found");
+			LOG("arp not found");
 			ether_flame *request = make_arprequest_flame(dstaddr);
 			ethernet_send(request);
 			delete request;
@@ -181,7 +182,6 @@ void arp_send(hdrstack *packet, uint8_t dstaddr[], uint16_t proto){
 		}
 	case RESULT_ADD_LIST:
 		//以前から保留状態にあった
-		LOG("arptable: pending");
 		break;
 	}
 }

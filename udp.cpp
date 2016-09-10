@@ -25,7 +25,7 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 		LOG("udp packet discarded(checksum error).");
 		goto exit;
 	}
-	LOG("udp received");
+	//LOG("udp received");
 
 
 	int s;
@@ -52,7 +52,7 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 		sock->recv_back++;
 		if(sock->recv_back == DGRAM_RECV_QUEUE) sock->recv_back=0;
 	}
-	LOG("received udp datagram (queue %d/%d)", sock->recv_front, sock->recv_back);
+	//LOG("received udp datagram (queue %d/%d)", sock->recv_front, sock->recv_back);
 	sig_sem(sock->drsem);
 	if(sock->recv_waiting) wup_tsk(sock->ownertsk);
 

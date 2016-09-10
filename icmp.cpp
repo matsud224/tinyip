@@ -44,7 +44,6 @@ static void make_icmp_echoreply(ether_flame *flm, ip_hdr *iphdr, icmp *icmpdata)
 }
 
 void icmp_process(ether_flame *flm, ip_hdr *iphdr, icmp *icmpdata){
-	LOG("ICMP: recieved");
 	if( flm->size-sizeof(ether_hdr)-iphdr->ip_hl*4 < 4 /*共通部分のサイズ*/ ||
 		checksum((uint16_t*)icmpdata, flm->size-sizeof(ether_hdr)-iphdr->ip_hl*4) != 0){
 		goto exit;
@@ -52,7 +51,7 @@ void icmp_process(ether_flame *flm, ip_hdr *iphdr, icmp *icmpdata){
 
 	switch(icmpdata->icmp_type){
 	case ICMP_ECHO:
-		LOG("ICMP ECHO: recieved");
+		//LOG("ICMP ECHO: recieved");
 		make_icmp_echoreply(flm, iphdr, icmpdata);
 		ethernet_send(flm);
 		break;

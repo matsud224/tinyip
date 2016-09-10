@@ -12,7 +12,7 @@ struct socket_t{
     int type;
     ID ownertsk;
     ID drsem; //データグラム受信キュー用
-    ID dssem; //データグラム送信キュー用
+    //ID dssem; //データグラム送信キュー用
     ID srsem; //ストリーム受信バッファ用
     ID sssem; //ストリーム送信バッファ用
     uint16_t my_port;
@@ -29,7 +29,7 @@ struct socket_t{
     union{
     	struct{
     		ether_flame **recv; //「ether_flameのポインタ」の配列
-			hdrstack **send;
+			//hdrstack **send;
     	} dgram_queue;
     	struct{
 			char *recv;
@@ -37,7 +37,7 @@ struct socket_t{
     	} stream_buf;
     } pending;
 #define dgram_recv_queue pending.dgram_queue.recv
-#define dgram_send_queue pending.dgram_queue.send
+//#define dgram_send_queue pending.dgram_queue.send
 #define stream_recv_buf pending.stream_buf.recv
 #define stream_send_buf pending.stream_buf.send
 };

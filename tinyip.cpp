@@ -8,11 +8,14 @@
 #include "arduino_app.h"
 #include "mbed.h"
 
+#include <time.h>
+
 #include "ethernet.h"
 #include "util.h"
 #include "ip.h"
 #include "netconf.h"
 #include "netlib.h"
+#include "sntpclient.h"
 
 
 InterruptIn user_button0(USER_BUTTON0);
@@ -54,9 +57,9 @@ void main_task(intptr_t exinf) {
 	user_button0.fall(user_button0_push);
 	sta_cyc(CYCHDR1);
 
+	act_tsk(ETHERRECV_TASK);
 	act_tsk(TIMEOUT_10SEC_TASK);
 	sta_cyc(TIMEOUT_10SEC_CYC);
-	act_tsk(ETHERRECV_TASK);
 
 	act_tsk(USER_TASK);
 }
@@ -75,7 +78,8 @@ void user_task(intptr_t exinf){
 		slp_tsk();
 	}
 	*/
-	int s = socket(SOCK_DGRAM, USER_TASK, USER_DRSEM, USER_DSSEM, USER_SRSEM, USER_SSSEM);
+	/*
+	int s = socket(SOCK_DGRAM, USER_DRSEM, USER_SRSEM, USER_SSSEM);
 	static char buf[2345];
 	static char pat[4] = {0xDE, 0xAD, 0xBE, 0xEF};
 	for(int i=0;i<2340;i+=4){
@@ -87,6 +91,27 @@ void user_task(intptr_t exinf){
 		slp_tsk();
 		int len = sendto(s, buf, sizeof(buf), 0, to_addr, 1234);
 	}
+	*/
+
+	LOG("sntp client start");
+	uint8_t serveraddr[IP_ADDR_LEN] = {192, 168, 0, 5};
+    timestamp t;
+    int err;
+    while(true){
+		slp_tsk();
+		LOG("sending...");
+		if((err = sntp_gettime(serveraddr, &t, USER_DRSEM, 3000)) < 0){
+			mcled_change(COLOR_RED);
+			LOG("error(%d)",err);
+		}else{
+			mcled_change(COLOR_LIGHTBLUE);
+			//NTPタイムスタンプは1900年からの経過秒,エポックタイムは1970年からなので変換
+			//ついでに日本時間に直す
+			uint32_t convt = t.sec - 2208988800 + 32400;
+			LOG("%s", ctime((time_t*)(&convt)));
+		}
+		LOG("finished.");
+    }
 }
 
 
