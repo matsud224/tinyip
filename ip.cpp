@@ -172,7 +172,7 @@ static void modify_inf_holelist(hole **holepp, uint16_t newsize){
 void ip_process(ether_flame *flm, ip_hdr *iphdr){
 	//正しいヘッダかチェック
 	if(flm->size < sizeof(ether_hdr)+sizeof(ip_hdr) ||
-		flm->size != sizeof(ether_hdr)+iphdr->ip_len ||
+		flm->size != sizeof(ether_hdr)+ntoh16(iphdr->ip_len) ||
 		iphdr->ip_v != 4 || iphdr->ip_hl < 5 ||
 		checksum((uint16_t*)iphdr, iphdr->ip_hl*4) != 0 ){
 		LOG("broken packet...");
@@ -306,7 +306,7 @@ static void prep_iphdr(ip_hdr *iphdr, uint16_t len, uint16_t id,
     memcpy(iphdr->ip_src, IPADDR, IP_ADDR_LEN);
     memcpy(iphdr->ip_dst, dstaddr, IP_ADDR_LEN);
 
-    iphdr->ip_sum = hton16(checksum((uint16_t*)iphdr, sizeof(ip_hdr)));
+    iphdr->ip_sum = checksum((uint16_t*)iphdr, sizeof(ip_hdr));
     return;
 }
 
@@ -321,13 +321,18 @@ void ip_routing(uint8_t dstaddr[]){
 	}
 }
 
+uint16_t ip_getid(){
+	uint16_t id;
+	wai_sem(IPID_SEM);
+    id = ip_id; ip_id++;
+    sig_sem(IPID_SEM);
+    return id;
+}
+
 void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
 	uint32_t datalen = hdrstack_totallen(data); //IPペイロード長
 	uint32_t remainlen = datalen;
-    uint16_t currentid; //今回のパケットに付与する識別子
-    wai_sem(IPID_SEM);
-    currentid = ip_id; ip_id++;
-    sig_sem(IPID_SEM);
+    uint16_t currentid = ip_getid(); //今回のパケットに付与する識別子
 
     //複数のフラグメントを送信する際、iphdr_itemはつなぐ先と内容を変えながら使い回せそうに思える
     //でも、送信はすぐに行われないかもしれない(MACアドレス解決待ち)ので使い回しはダメ

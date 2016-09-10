@@ -1,3 +1,5 @@
+#include <kernel.h>
+
 #include <cstring>
 
 #include "netlib.h"
@@ -6,6 +8,7 @@
 #include "sockif.h"
 #include "util.h"
 #include "ip.h"
+#include "icmp.h"
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
@@ -119,7 +122,7 @@ static hdrstack *set_udpheader(hdrstack *target, uint16_t sport, uint16_t dport,
 	memcpy(iphdr_tmp.ip_src, IPADDR, IP_ADDR_LEN);
 	memcpy(iphdr_tmp.ip_dst, daddr, IP_ADDR_LEN);
 
-    uhdr->sum = hton16(udp_checksum(&iphdr_tmp, uhdr));
+    uhdr->sum = udp_checksum(&iphdr_tmp, uhdr);
 
     return uhdr_item;
 }
@@ -207,3 +210,4 @@ uint32_t recvfrom(int s, char *buf, uint32_t len, int flags, uint8_t from_addr[]
 		return -1;
 	}
 }
+

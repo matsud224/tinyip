@@ -102,12 +102,11 @@ void arp_process(ether_flame *flm, ether_arp *earp){
 
 	switch(ntoh16(earp->arp_op)){
 	case ARPOP_REQUEST:
-		LOG("ARP REQUEST for %s", ipaddr2str(earp->arp_tpa));
 		if(memcmp(earp->arp_tpa, IPADDR,IP_ADDR_LEN)==0){
 			//相手のIPアドレスとMACアドレスを登録
 			register_arptable(IPADDR_TO_UINT32(earp->arp_spa), earp->arp_sha);
-            LOG("arp entry registered:\n");
-            LOG("\t%s -> %s\n", ipaddr2str(earp->arp_spa), macaddr2str(earp->arp_sha));
+            LOG("arp entry registered:");
+            LOG("\t%s -> %s", ipaddr2str(earp->arp_spa), macaddr2str(earp->arp_sha));
 			//パケットを改変
 			memcpy(earp->arp_tha, earp->arp_sha, ETHER_ADDR_LEN);
 			memcpy(earp->arp_tpa, earp->arp_spa, IP_ADDR_LEN);

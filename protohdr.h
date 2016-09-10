@@ -106,7 +106,7 @@ struct ether_arp{
 
 //ICMP
 struct icmp{
-	uint8_t imcp_type;
+	uint8_t icmp_type;
 	uint8_t icmp_code;
 	uint16_t icmp_cksum;
 	union{
@@ -166,6 +166,27 @@ struct icmp{
 #define icmp_data icmp_dun.id_data
 
 };
+
+#define ICMP_ECHOREPLY 0
+#define ICMP_UNREACH 3
+#define ICMP_SOURCEQUENCH 4
+#define ICMP_REDIRECT 5
+#define ICMP_ECHO 8
+#define ICMP_TIMXCEED 11
+#define ICMP_PARAMPROB 12
+
+#define ICMP_UNREACH_NET 0
+#define ICMP_UNREACH_HOST 1
+#define ICMP_UNREACH_PROTOCOL 2
+#define ICMP_UNREACH_PORT 3
+#define ICMP_UNREACH_NEEDFRAG 4
+#define ICMP_UNREACH_SRCFAIL 5
+
+#define ICMP_REDIRECT_NET 0
+#define ICMP_REDIRECT_HOST 1
+#define ICMP_REDIRECT_TOSNET 2
+#define ICMP_REDIRECT_TOSHOST 3
+
 
 
 //UDP
