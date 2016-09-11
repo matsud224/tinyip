@@ -9,12 +9,13 @@
 #include "util.h"
 #include "ip.h"
 #include "icmp.h"
+#include "udp.h"
+#include "tcp.h"
 
-#define MIN(x,y) ((x)<(y)?(x):(y))
 
 socket_t sockets[MAX_SOCKET];
 
-int socket(int type, ID drsem, ID srsem, ID sssem){
+int socket(int type, ID recvsem, ID sendsem){
 	ID ownertsk;
 	get_tid(&ownertsk);
 	wai_sem(SOCKTBL_SEM);
@@ -22,26 +23,15 @@ int socket(int type, ID drsem, ID srsem, ID sssem){
 		if(sockets[i].type==SOCK_UNUSED){
 			sockets[i].type=type;
 			sockets[i].ownertsk = ownertsk;
-			sockets[i].drsem = drsem;
-			//sockets[i].dssem = dssem;
-			sockets[i].srsem = srsem;
-			sockets[i].sssem = sssem;
+			sockets[i].my_port=0;
 			switch(sockets[i].type){
 			case SOCK_DGRAM:
-				sockets[i].dgram_recv_queue=new ether_flame*[DGRAM_RECV_QUEUE];
-				//sockets[i].dgram_send_queue=new hdrstack*[DGRAM_SEND_QUEUE];
+				sockets[i].ctrlblock.ucb = udp_newcb(recvsem);
 				break;
 			case SOCK_STREAM:
-				sockets[i].stream_recv_buf=new char[STREAM_RECV_BUF];
-				sockets[i].stream_send_buf=new char[STREAM_SEND_BUF];
+				sockets[i].ctrlblock.tcb = tcp_newcb(recvsem, sendsem);
 				break;
 			}
-			sockets[i].recv_front=0; sockets[i].recv_back=0;
-			sockets[i].send_front=0; sockets[i].send_back=0;
-			sockets[i].my_port=0;
-			memset(sockets[i].dest_ipaddr, 0, IP_ADDR_LEN);
-			sockets[i].dest_port=0;
-			sockets[i].recv_waiting=false;
 			sig_sem(SOCKTBL_SEM);
 			return i;
 		}
@@ -91,94 +81,15 @@ int close(int s){
 	wai_sem(SOCKTBL_SEM);
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
-		delete [] sockets[s].dgram_recv_queue;
-		//delete [] sockets[s].dgram_send_queue;
+		udp_disposecb(sockets[s].ctrlblock.ucb);
 		break;
 	case SOCK_STREAM:
-		delete [] sockets[s].stream_recv_buf;
-		delete [] sockets[s].stream_send_buf;
+		tcp_disposecb(sockets[s].ctrlblock.tcb);
 		break;
 	}
 	sockets[s].type=SOCK_UNUSED;
 	sig_sem(SOCKTBL_SEM);
 	return 0;
-}
-
-
-//UDPヘッダのチェックサム計算にはIPアドレスが必要
-static void set_udpheader(udp_hdr *uhdr, uint16_t seglen, uint16_t sport, uint16_t dport, uint8_t daddr[]){
-    uhdr->uh_sport = hton16(sport);
-    uhdr->uh_dport = hton16(dport);
-    uhdr->uh_ulen = hton16(seglen);
-	uhdr->sum = 0;
-
-	//チェックサム計算用(送信元・宛先アドレスだけ埋めればいい)
-	ip_hdr iphdr_tmp;
-	memcpy(iphdr_tmp.ip_src, IPADDR, IP_ADDR_LEN);
-	memcpy(iphdr_tmp.ip_dst, daddr, IP_ADDR_LEN);
-
-    uhdr->sum = udp_checksum(&iphdr_tmp, uhdr);
-
-    return;
-}
-
-static int sendto_udp(int s, const char *msg, uint32_t len, int flags, uint8_t to_addr[], uint16_t to_port){
-	//UDPで送れる最大サイズに切り詰め
-	len = MIN(len,0xffff-sizeof(udp_hdr));
-
-	hdrstack *udpseg=new hdrstack;
-	udpseg->next = NULL;
-	udpseg->size=sizeof(udp_hdr)+len;
-	udpseg->buf=new char[udpseg->size];
-	memcpy(udpseg->buf+sizeof(udp_hdr), msg, len);
-
-	socket_t *sock=&sockets[s];
-	set_udpheader((udp_hdr*)udpseg->buf,udpseg->size, sock->my_port, to_port, to_addr);
-
-	ip_send(udpseg, to_addr, IPTYPE_UDP);
-
-	return len;
-}
-
-static char *udp_analyze(ether_flame *flm, uint16_t *datalen, uint8_t srcaddr[], uint16_t *srcport){
-	ether_hdr *ehdr=(ether_hdr*)(flm->buf);
-	ip_hdr *iphdr=(ip_hdr*)(ehdr+1);
-	udp_hdr *udphdr=(udp_hdr*)(((uint8_t*)iphdr)+(iphdr->ip_hl*4));
-	*datalen = ntoh16(udphdr->uh_ulen)-sizeof(udp_hdr);
-	if(srcaddr!=NULL) memcpy(srcaddr, iphdr->ip_src, IP_ADDR_LEN);
-	if(srcport!=NULL) *srcport = ntoh16(udphdr->uh_sport);
-	return (char*)(udphdr+1);
-}
-
-static int32_t recvfrom_udp(int s, char *buf, uint32_t len, int flags, uint8_t from_addr[], uint16_t *from_port, TMO timeout){
-	socket_t *sock=&sockets[s];
-	memcpy(sock->dest_ipaddr, from_addr, IP_ADDR_LEN);
-
-	wai_sem(sock->drsem);
-	//recv_waitingがtrueの時にデータグラムがやってきたら起こしてもらえる
-	sock->recv_waiting = true;
-	while(true){
-		if(sock->recv_front==sock->recv_back){
-			sig_sem(sock->drsem);
-			//LOG("user task zzz...");
-            if(tslp_tsk(timeout) == E_TMOUT){
-				sock->recv_waiting = false;
-				return ETIMEOUT;
-            }
-		}else{
-			uint16_t datalen;
-			char *data = udp_analyze(sock->dgram_recv_queue[sock->recv_back], &datalen, from_addr, from_port);
-			memcpy(buf, data, MIN(len,datalen));
-			delete sock->dgram_recv_queue[sock->recv_back];
-			sock->recv_back++;
-			if(sock->recv_back==DGRAM_RECV_QUEUE) sock->recv_back=0;
-			sock->recv_waiting = false;
-			sig_sem(sock->drsem);
-			return MIN(len,datalen);
-		}
-		//LOG("retry...");
-		wai_sem(sock->drsem);
-	}
 }
 
 int sendto(int s, const char *msg, uint32_t len, int flags, uint8_t to_addr[], uint16_t to_port){
@@ -187,7 +98,7 @@ int sendto(int s, const char *msg, uint32_t len, int flags, uint8_t to_addr[], u
 			return EAGAIN;
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
-		return sendto_udp(s, msg, len, flags, to_addr, to_port);
+		return udp_sendto(msg, len, flags, to_addr, to_port, sockets[s].my_port);
 	case SOCK_STREAM:
 		return EBADF;
 	default:
@@ -201,7 +112,7 @@ int32_t recvfrom(int s, char *buf, uint32_t len, int flags, uint8_t from_addr[],
 			return EAGAIN;
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
-		return recvfrom_udp(s, buf, len, flags, from_addr, from_port, timeout);
+		return udp_recvfrom(sockets[s].ctrlblock.ucb, buf, len, flags, from_addr, from_port, timeout);
 	case SOCK_STREAM:
 		return EBADF;
 	default:

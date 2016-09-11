@@ -7,4 +7,4 @@ struct timestamp{
 	uint32_t pico;
 };
 
-int sntp_gettime(uint8_t ipaddr[], timestamp *ts, ID drsem, TMO timeout);
+int sntp_gettime(uint8_t ipaddr[], timestamp *ts, ID recvsem, TMO timeout);

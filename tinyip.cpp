@@ -35,7 +35,7 @@ svc_perror(const char *file, int_t line, const char *expr, ER ercd)
 
 void user_button0_push() {
 	mcled_change(COLOR_OFF);
-	iwup_tsk(USER_TASK);
+	isig_sem(USER_BTNSEM);
     return;
 }
 
@@ -93,13 +93,11 @@ void user_task(intptr_t exinf){
 	}
 	*/
 
-	LOG("sntp client start");
 	uint8_t serveraddr[IP_ADDR_LEN] = {192, 168, 0, 5};
     timestamp t;
     int err;
     while(true){
-		slp_tsk();
-		LOG("sending...");
+		wai_sem(USER_BTNSEM);
 		if((err = sntp_gettime(serveraddr, &t, USER_DRSEM, 3000)) < 0){
 			mcled_change(COLOR_RED);
 			LOG("error(%d)",err);
@@ -110,7 +108,7 @@ void user_task(intptr_t exinf){
 			uint32_t convt = t.sec - 2208988800 + 32400;
 			LOG("%s", ctime((time_t*)(&convt)));
 		}
-		LOG("finished.");
+		//LOG("finished.");
     }
 }
 
