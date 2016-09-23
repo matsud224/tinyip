@@ -171,11 +171,25 @@ static void modify_inf_holelist(hole **holepp, uint16_t newsize){
 
 void ip_process(ether_flame *flm, ip_hdr *iphdr){
 	//正しいヘッダかチェック
-	if(flm->size < sizeof(ether_hdr)+sizeof(ip_hdr) ||
-		flm->size != sizeof(ether_hdr)+ntoh16(iphdr->ip_len) ||
-		iphdr->ip_v != 4 || iphdr->ip_hl < 5 ||
-		checksum((uint16_t*)iphdr, iphdr->ip_hl*4) != 0 ){
-		LOG("broken packet...");
+	if(flm->size < sizeof(ether_hdr)+sizeof(ip_hdr)){
+		LOG("broken ip packet(length_1)");
+		goto exit;
+	}
+	if(flm->size < sizeof(ether_hdr)+ntoh16(iphdr->ip_len) ){
+		//Ethernetパディングも考慮
+		LOG("broken ip packet(length_2) : %d/%d", flm->size, sizeof(ether_hdr)+ntoh16(iphdr->ip_len));
+		goto exit;
+	}
+	if(iphdr->ip_v != 4 ){
+		LOG("broken ip packet(version)");
+		goto exit;
+	}
+	if(iphdr->ip_hl < 5){
+		LOG("broken ip packet(hl<5)");
+		goto exit;
+	}
+	if(checksum((uint16_t*)iphdr, iphdr->ip_hl*4) != 0 ){
+		LOG("broken ip packet(checksum)");
 		goto exit;
 	}
 	//自分宛てかチェック
@@ -337,7 +351,7 @@ void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
     //複数のフラグメントを送信する際、iphdr_itemはつなぐ先と内容を変えながら使い回せそうに思える
     //でも、送信はすぐに行われないかもしれない(MACアドレス解決待ち)ので使い回しはダメ
     if(sizeof(ip_hdr)+remainlen <= MTU){
-		hdrstack *iphdr_item = new hdrstack;
+		hdrstack *iphdr_item = new hdrstack(true);
 		iphdr_item->size = sizeof(ip_hdr);
 		iphdr_item->buf = new char[sizeof(ip_hdr)];
 		prep_iphdr((ip_hdr*)iphdr_item->buf, sizeof(ip_hdr)+remainlen, currentid, false, 0, proto, dstaddr);
@@ -351,7 +365,7 @@ void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
 			uint32_t thispkt_totallen = MIN(remainlen+sizeof(ip_hdr), MTU);
 			uint32_t thispkt_datalen = thispkt_totallen - sizeof(ip_hdr);
 			uint16_t offset = datalen - remainlen;
-			hdrstack *ippkt = new hdrstack;
+			hdrstack *ippkt = new hdrstack(true);
 			ippkt->next = NULL;
 			remainlen -= thispkt_datalen;
 			ippkt->size = thispkt_totallen;

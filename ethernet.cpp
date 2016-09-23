@@ -31,7 +31,6 @@ void ethernet_initialize(){
 
 	//リンク待ち
 	dly_tsk(1000); //1秒ぐらい待ったほうがいいみたい
-	while(!ethernet_link());
 }
 
 void etherrecv_task(intptr_t exinf) {
@@ -40,7 +39,7 @@ void etherrecv_task(intptr_t exinf) {
 		twai_sem(ETHERRECV_SEM, 10);
 		for(int i=0; i<16; i++){
 			wai_sem(ETHERIO_SEM);
-			int size = ethernet_receive();
+			uint32_t size = ethernet_receive();
 			if(size > sizeof(ether_hdr)){
 				//LOG("--FLAME RECEIVED--");
 				char *buf = new char[size];

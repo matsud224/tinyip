@@ -14,6 +14,8 @@ struct socket_t{
     int type;
     ID ownertsk;
     uint16_t my_port;
+    uint16_t partner_port;
+    uint8_t partner_addr[IP_ADDR_LEN];
 
     union{
 		udp_ctrlblock *ucb;

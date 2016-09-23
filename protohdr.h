@@ -18,7 +18,7 @@ struct ether_hdr{
 
 //受信したものはEthernetフレームをそのままたらい回しにする
 struct ether_flame{
-	int size;
+	uint32_t size;
 	char *buf;
 
 	~ether_flame(){
@@ -33,11 +33,17 @@ struct ether_flame{
 //hdrstackという名前だが、ペイロードも統一して扱う
 struct hdrstack{
 	hdrstack *next;
-	int size;
+	uint32_t size;
 	char *buf;
+	bool delete_needed; //デストラクタでbufをdeleteする責任を負うか
+
+	hdrstack(bool delete_needed){
+		this->delete_needed = delete_needed;
+	}
+
 	~hdrstack(){
 		if(next!=NULL) delete next;
-		delete [] buf;
+		if(delete_needed && buf!=NULL) delete [] buf;
 	}
 };
 
@@ -210,7 +216,7 @@ struct tcp_pseudo_hdr{
 	uint8_t tp_dst[IP_ADDR_LEN];
 	uint8_t tp_void;
 	uint8_t tp_type;
-	uint8_t tp_len;
+	uint16_t tp_len;
 };
 
 

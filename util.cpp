@@ -10,6 +10,7 @@
 
 using namespace std;
 
+
 char *macaddr2str(uint8_t ma[]){
 	static char str[18];
 	sprintf(str, "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -62,19 +63,48 @@ uint16_t checksum(uint16_t *data, int len){
 
 uint16_t checksum2(uint16_t *data1, uint16_t *data2, int len1, int len2){
 	uint32_t sum = 0;
-	for(; len1>1;len1-=2){
-		sum+=*data1++;
+	int len = len1 + len2;
+	uint16_t *data = data1;
+	int complen = 0;
+	for(; len>1;len-=2){
+		sum+=*data++;
+		complen+=2;
 		if(sum &0x80000000)
 			sum=(sum&0xffff)+(sum>>16);
+		if(complen == len1)
+			data = data2;
 	}
-	for(; len2>1;len2-=2){
-		sum+=*data2++;
-		if(sum &0x80000000)
-			sum=(sum&0xffff)+(sum>>16);
-	}
-	if(len2 == 1){
+	if(len == 1){
 		uint16_t i=0;
-		*(uint8_t*)(&i)= *(uint8_t*)data2;
+		*(uint8_t*)(&i)= *(uint8_t*)data;
+		sum+=i;
+	}
+	while(sum>>16)
+		sum=(sum&0xffff)+(sum>>16);
+
+	return ~sum;
+}
+
+//もし途中に長さが奇数の部分があっても、次の領域にまたがって計算するため問題ない
+uint16_t checksum_hdrstack(hdrstack *hs){
+	uint32_t len = hdrstack_totallen(hs);
+	uint32_t sum = 0;
+	uint32_t thisstack_len = 0;
+	uint16_t *data = (uint16_t*)hs->buf;
+	for(; len>1;len-=2){
+		sum+=*data++;
+		thisstack_len+=2;
+		if(thisstack_len == hs->size){
+			hs = hs->next;
+			data = (uint16_t*)hs->buf;
+			thisstack_len = 0;
+		}
+		if(sum &0x80000000)
+			sum=(sum&0xffff)+(sum>>16);
+	}
+	if(len == 1){
+		uint16_t i=0;
+		*(uint8_t*)(&i)= *(uint8_t*)data;
 		sum+=i;
 	}
 	while(sum>>16)
@@ -112,16 +142,6 @@ void redled_on(){
 	led_user = 0;
 }
 
-uint16_t udp_checksum(ip_hdr *iphdr, udp_hdr *uhdr){
-	udp_pseudo_hdr pseudo;
-	memcpy(pseudo.up_src, iphdr->ip_src, IP_ADDR_LEN);
-	memcpy(pseudo.up_dst, iphdr->ip_dst, IP_ADDR_LEN);
-	pseudo.up_type = 17;
-	pseudo.up_void = 0;
-	pseudo.up_len = uhdr->uh_ulen; //UDPヘッダ+UDPペイロードの長さ
-
-	return checksum2((uint16_t*)(&pseudo), (uint16_t*)uhdr, sizeof(udp_pseudo_hdr), ntoh16(uhdr->uh_ulen));
-}
 
 uint32_t hdrstack_totallen(hdrstack *target){
 	uint32_t len=0;
@@ -132,8 +152,8 @@ uint32_t hdrstack_totallen(hdrstack *target){
 	return len;
 }
 
-void hdrstack_cpy(char *dst, hdrstack *src, int start, int len){
-	int remain = start+1;
+void hdrstack_cpy(char *dst, hdrstack *src, uint32_t start, uint32_t len){
+	uint32_t remain = start+1;
 	hdrstack *ptr = src;
 
 	while(remain > ptr->size){
@@ -142,8 +162,8 @@ void hdrstack_cpy(char *dst, hdrstack *src, int start, int len){
 	}
 	//開始位置が分かった(ptr->buf+(remain-1))
 
-	int remain_copy = len; //コピーの残りオクテット数
-	int offset = 0;
+	uint32_t remain_copy = len; //コピーの残りオクテット数
+	uint32_t offset = 0;
 	while(remain_copy > 0){
 		memcpy(dst+offset, ptr->buf+(remain-1), MIN(remain_copy, ptr->size-(remain-1)));
 		remain_copy -= MIN(remain_copy, ptr->size-(remain-1));

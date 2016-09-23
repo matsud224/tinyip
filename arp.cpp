@@ -55,7 +55,7 @@ static int search_arptable(uint32_t ipaddr, uint8_t macaddr[], hdrstack *flm){
 	return RESULT_NOT_FOUND;
 }
 
-static void register_arptable(uint32_t ipaddr, uint8_t macaddr[]){
+void register_arptable(uint32_t ipaddr, uint8_t macaddr[]){
 	wai_sem(ARPTBL_SEM);
 	//LOG("arp registered.");
 	//IPアドレスだけ登録されている（アドレス解決待ち）エントリを探す
@@ -99,6 +99,7 @@ void arp_process(ether_flame *flm, ether_arp *earp){
 		ntoh16(earp->arp_pro) != ETHERTYPE_IP ||
 		earp->arp_hln != ETHER_ADDR_LEN || earp->arp_pln != 4 ||
 		(ntoh16(earp->arp_op) != ARPOP_REQUEST && ntoh16(earp->arp_op) !=ARPOP_REPLY) ){
+		//LOG("invalid arp header.");
 		goto exit;
 	}
 
@@ -156,7 +157,7 @@ ether_flame *make_arprequest_flame(uint8_t dstaddr[]){
 
 void arp_send(hdrstack *packet, uint8_t dstaddr[], uint16_t proto){
 	//Ethernetヘッダはここで作っておく
-	hdrstack *ehdr_item = new hdrstack;
+	hdrstack *ehdr_item = new hdrstack(true);
 	ehdr_item->next = packet;
 	ehdr_item->size = sizeof(ether_hdr);
 	ehdr_item->buf = new char[ehdr_item->size];

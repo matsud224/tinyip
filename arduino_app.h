@@ -44,21 +44,22 @@
 #define TIMEOUT_10SEC_TASK_STACK_SIZE 1024
 #endif  /* TIMEOUT_10SEC_TASK_STACK_SIZE */
 
-#ifndef ICMP_TASK_PRI
-#define ICMP_TASK_PRI  6
-#endif /* ICMP_TASK_PRI */
+#ifndef TCP_TIMER_TASK_PRI
+#define TCP_TIMER_TASK_PRI  5
+#endif /* TCP_TIMER_TASK_PRI */
 
-#ifndef ICMP_TASK_STACK_SIZE
-#define ICMP_TASK_STACK_SIZE 1024
-#endif  /* ICMP_TASK_STACK_SIZE */
+#ifndef TCP_TIMER_TASK_STACK_SIZE
+#define TCP_TIMER_TASK_STACK_SIZE 1024
+#endif  /* TCP_TIMER_TASK_STACK_SIZE */
 
-#ifndef TCP_TASK_PRI
-#define TCP_TASK_PRI  5
-#endif /* TCP_TASK_PRI */
+#ifndef TCP_SEND_TASK_PRI
+#define TCP_SEND_TASK_PRI  5
+#endif /* TCP_SEND_TASK_PRI */
 
-#ifndef TCP_TASK_STACK_SIZE
-#define TCP_TASK_STACK_SIZE 1024
-#endif  /* TCP_TASK_STACK_SIZE */
+#ifndef TCP_TIMER_SEND_STACK_SIZE
+#define TCP_SEND_TASK_STACK_SIZE 1024
+#endif  /* TCP_SEND_TASK_STACK_SIZE */
+
 
 /*
  *  Definition of memory size for RTOS
@@ -87,8 +88,10 @@ extern void user_task(intptr_t exinf);
 extern void etherrecv_task(intptr_t exinf);
 extern void timeout_10sec_task(intptr_t exinf);
 extern void timeout_10sec_cyc(intptr_t exinf);
-extern void icmp_task(intptr_t exinf);
-extern void tcp_task(intptr_t exinf);
+extern void tcp_timer_task(intptr_t exinf);
+extern void tcp_timer_cyc(intptr_t exinf);
+extern void tcp_send_task(intptr_t exinf);
+extern void tcp_send_cyc(intptr_t exinf);
 
 #ifdef __cplusplus
 }

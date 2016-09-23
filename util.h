@@ -67,14 +67,12 @@ uint32_t ipaddr2uint32(const uint8_t ip[]);
 */
 
 uint16_t checksum(uint16_t *data, int len);
-//1en1は偶数でなくてはならない
 uint16_t checksum2(uint16_t *data1, uint16_t *data2, int len1, int len2);
+uint16_t checksum_hdrstack(hdrstack *hs);
 
 void ipaddr_hostpart(uint8_t *dst, uint8_t *addr, uint8_t *mask);
 void ipaddr_networkpart(uint8_t *dst, uint8_t *addr, uint8_t *mask);
 
-uint16_t udp_checksum(ip_hdr *iphdr, udp_hdr *uhdr);
-
 uint32_t hdrstack_totallen(hdrstack *target);
-void hdrstack_cpy(char *dst, hdrstack *src, int start, int len);
+void hdrstack_cpy(char *dst, hdrstack *src, uint32_t start, uint32_t len);
 

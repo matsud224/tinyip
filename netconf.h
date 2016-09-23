@@ -4,6 +4,7 @@
 #include "protohdr.h"
 
 #define MTU 1500
+#define MSS (MTU-40)
 #define IP_TTL 64
 #define MAX_SOCKET 256
 #define MAX_ARPTABLE 1024

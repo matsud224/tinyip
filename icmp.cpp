@@ -1,5 +1,3 @@
-#include "arduino_app.h"
-
 #include <cstring>
 
 #include "netconf.h"
@@ -10,10 +8,6 @@
 #include "ethernet.h"
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
-
-void icmp_task(intptr_t exinf) {
-
-}
 
 //ICMPエコー要求メッセージを加工して応答にする
 static void make_icmp_echoreply(ether_flame *flm, ip_hdr *iphdr, icmp *icmpdata){

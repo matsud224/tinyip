@@ -19,7 +19,23 @@ struct udp_ctrlblock{
 	ether_flame **recv_queue; //「ether_flameのポインタ」の配列
 	//hdrstack **send_queue;
 	bool recv_waiting;
+
+	~udp_ctrlblock(){
+		delete [] recv_queue;
+		return;
+	}
 };
+
+static uint16_t udp_checksum(ip_hdr *iphdr, udp_hdr *uhdr){
+	udp_pseudo_hdr pseudo;
+	memcpy(pseudo.up_src, iphdr->ip_src, IP_ADDR_LEN);
+	memcpy(pseudo.up_dst, iphdr->ip_dst, IP_ADDR_LEN);
+	pseudo.up_type = 17;
+	pseudo.up_void = 0;
+	pseudo.up_len = uhdr->uh_ulen; //UDPヘッダ+UDPペイロードの長さ
+
+	return checksum2((uint16_t*)(&pseudo), (uint16_t*)uhdr, sizeof(udp_pseudo_hdr), ntoh16(uhdr->uh_ulen));
+}
 
 void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 	//ブロードキャスト/マルチキャストアドレスは不許可
@@ -66,8 +82,8 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 		if(ucb->recv_back == DGRAM_RECV_QUEUE) ucb->recv_back=0;
 	}
 	//LOG("received udp datagram (queue %d/%d)", sock->recv_front, sock->recv_back);
-	sig_sem(ucb->rqueuesem);
 	if(ucb->recv_waiting) wup_tsk(sock->ownertsk);
+	sig_sem(ucb->rqueuesem);
 
 	return;
 exit:
@@ -93,10 +109,10 @@ static void set_udpheader(udp_hdr *uhdr, uint16_t seglen, uint16_t sport, uint16
 }
 
 int udp_sendto(const char *msg, uint32_t len, int flags, uint8_t to_addr[], uint16_t to_port, uint16_t my_port){
-	//UDPで送れる最大サイズに切り詰め
-	len = MIN(len,0xffff-sizeof(udp_hdr));
+	//UDPで送れる最大サイズを超えている
+	if(0xffff-sizeof(udp_hdr) < len) return EMSGSIZE;
 
-	hdrstack *udpseg=new hdrstack;
+	hdrstack *udpseg=new hdrstack(true);
 	udpseg->next = NULL;
 	udpseg->size=sizeof(udp_hdr)+len;
 	udpseg->buf=new char[udpseg->size];
@@ -128,7 +144,9 @@ int32_t udp_recvfrom(udp_ctrlblock *ucb, char *buf, uint32_t len, int flags, uin
 			sig_sem(ucb->rqueuesem);
 			//LOG("user task zzz...");
             if(tslp_tsk(timeout) == E_TMOUT){
+				wai_sem(ucb->rqueuesem);
 				ucb->recv_waiting = false;
+				sig_sem(ucb->rqueuesem);
 				return ETIMEOUT;
             }
 		}else{
