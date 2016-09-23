@@ -177,11 +177,10 @@ void user_task(intptr_t exinf){
 
     LOG("send start");
     static char msg[] = "hello,world.";
-    while(true){
 		LOG("sending...");
 		send(s2, msg, sizeof(msg), 0, TIMEOUT_NOTUSE);
 		wai_sem(USER_BTNSEM);
-    }
+		close(s2);
 }
 
 
