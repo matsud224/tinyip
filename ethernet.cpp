@@ -69,8 +69,18 @@ void etherrecv_task(intptr_t exinf) {
     }
 }
 
+static int counter = 0;
+
 void ethernet_send(ether_flame *flm){
 	wai_sem(ETHERIO_SEM);
+
+	if(ETHER_SEND_SKIP >= 0 && counter >= ETHER_SEND_SKIP){
+		counter = 0;
+		sig_sem(ETHERIO_SEM);
+		return;
+	}
+	counter++;
+
 	ethernet_write(flm->buf, flm->size);
 	ethernet_send();
 	sig_sem(ETHERIO_SEM);
@@ -79,6 +89,14 @@ void ethernet_send(ether_flame *flm){
 
 void ethernet_send(hdrstack *flm){
 	wai_sem(ETHERIO_SEM);
+
+	if(ETHER_SEND_SKIP >= 0 && counter >= ETHER_SEND_SKIP){
+		counter = 0;
+		sig_sem(ETHERIO_SEM);
+		return;
+	}
+	counter++;
+
 	while(flm!=NULL){
 		ethernet_write(flm->buf, flm->size);
 		flm=flm->next;

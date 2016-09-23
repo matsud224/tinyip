@@ -83,8 +83,8 @@ void main_task(intptr_t exinf) {
 	act_tsk(TIMEOUT_10SEC_TASK);
 	sta_cyc(TIMEOUT_10SEC_CYC);
 	act_tsk(TCP_SEND_TASK);
-	//act_tsk(TCP_TIMER_TASK);
-	//sta_cyc(TCP_TIMER_CYC);
+	act_tsk(TCP_TIMER_TASK);
+	sta_cyc(TCP_TIMER_CYC);
 
 	act_tsk(USER_TASK);
 }
@@ -176,11 +176,12 @@ void user_task(intptr_t exinf){
     */
 
     LOG("send start");
-    static char msg[] = "hello,world.";
-		LOG("sending...");
+    static char msg[] = "The quick brown fox jumps over the lazy dog.";
+	LOG("sending...");
+	while(true){
 		send(s2, msg, sizeof(msg), 0, TIMEOUT_NOTUSE);
 		wai_sem(USER_BTNSEM);
-		close(s2);
+	}
 }
 
 

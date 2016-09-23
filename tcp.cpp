@@ -109,7 +109,8 @@ struct tcp_timer_t{
 #define TCP_TIMER_TYPE_RESEND 2
 #define TCP_TIMER_TYPE_TIMEWAIT 3
 #define TCP_TIMER_TYPE_DELAYACK 4
-	int sec; //前に繋がれている要素の秒数の累計＋secで発動
+	int remaining; //前に繋がれている要素の秒数の累計＋remainingで発動
+	int sec; //タイマの設定秒数
 	socket_t *sock;
 	tcp_timer_option *option;
 };
@@ -118,6 +119,7 @@ tcp_timer_t *tcptimer = NULL;
 
 
 static void tcp_timer_add(socket_t *sock, int sec, int type, tcp_timer_option *opt);
+static void tcp_timer_add_locked(socket_t *sock, int sec, int type, tcp_timer_option *opt);
 static void tcp_timer_remove_all(socket_t *sock);
 
 static bool between_le_lt(uint32_t a, uint32_t b, uint32_t c);
@@ -161,15 +163,28 @@ int tcp_close(socket_t *sock, tcp_ctrlblock *tcb);
 
 
 static void tcp_timer_add(socket_t *sock, int sec, int type, tcp_timer_option *opt){
+	wai_sem(TCP_TIMER_SEM);
+
+	tcp_timer_add_locked(sock, sec, type, opt);
+
+	sig_sem(TCP_TIMER_SEM);
+	return;
+}
+
+static void tcp_timer_add_locked(socket_t *sock, int sec, int type, tcp_timer_option *opt){
+	//already locked.
 	tcp_timer_t *tim = new tcp_timer_t;
 	tim->type = type;
 	tim->sock = sock;
 	tim->option = opt;
+	tim->sec = sec;
+
+	LOG("new timer: sec=%d, type=%d", sec, type);
 
 	tcp_timer_t **pp = &tcptimer;
 	while(*pp != NULL){
-		if(sec > (*pp)->sec){
-			sec -= (*pp)->sec;
+		if(sec > (*pp)->remaining){
+			sec -= (*pp)->remaining;
 			pp = &((*pp)->next);
 		}else{
 			break;
@@ -177,9 +192,10 @@ static void tcp_timer_add(socket_t *sock, int sec, int type, tcp_timer_option *o
 	}
 	tim->next = *pp;
 	*pp = tim;
-	tim->sec = sec;
+	tim->remaining = sec;
+	pp = &tim->next;
 	while(*pp!=NULL){
-		(*pp)->sec -= sec;
+		(*pp)->remaining -= sec;
 		pp = &((*pp)->next);
 	}
 
@@ -670,6 +686,7 @@ sendfin:
 }
 
 static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index, uint32_t start_seq, uint32_t end_seq){
+	LOG("resend start...");
 	uint32_t send_start = start_index, send_last = end_index;
 	uint32_t send_next_seq = start_seq, send_next = start_index;
 	int remaining;
@@ -677,9 +694,11 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 	if(tcb->myfin_state == FIN_REQUESTED && start_seq == tcb->myfin_seq && end_seq == tcb->myfin_seq){
 		//FINの再送
 		tcp_send_ctrlseg(tcb->myfin_seq, tcb->recv_next_seq, tcb->recv_window, TH_FIN|TH_ACK, NULL, tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
+		LOG("FIN resend");
 		return true;
 	}
 	if(!between_le_lt(tcb->send_unack, end_index, MOD(tcb->send_unack+tcb->send_used_len, STREAM_SEND_BUF))){
+		LOG("no resend");
 		return false; //送信可能なものはない
 	}
 
@@ -690,12 +709,15 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 		remaining += send_start + 1;
 	}
 
-	if(remaining == 0)
+	if(remaining == 0){
+		LOG("no resend: remaining=0");
 		return false;
+	}else{
+		LOG("resend %d byte(s)", remaining);
+	}
 
 	tcp_hdr *tcphdr_template;
 	tcphdr_template = new tcp_hdr;
-	tcphdr_template->th_ack = 0;
 	tcphdr_template->th_dport = hton16(tcb->sock->partner_port);
 	tcphdr_template->th_flags = TH_ACK;
 	tcphdr_template->th_off = sizeof(tcp_hdr)/4;
@@ -719,12 +741,15 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 
 		tcp_hdr *thdr = (tcp_hdr*)tcpseg->buf;
 		thdr->th_seq = hton32(send_next_seq);
+		thdr->th_ack = hton32(tcb->recv_next_seq);
 		send_next_seq += payload_len;
 		send_next = (send_next+payload_len)%STREAM_SEND_BUF;
 		thdr->th_win = hton16(tcb->recv_window);
 		thdr->th_sum = tcp_checksum_send(tcpseg, IPADDR, tcb->sock->partner_addr);
 
+		LOG("sending... remaining=%d, total=%d", remaining, hdrstack_totallen(tcpseg));
 		ip_send(tcpseg, tcb->sock->partner_addr, IPTYPE_TCP);
+		mcled_change(COLOR_LIGHTBLUE);
 	}
 
 	return true;
@@ -739,7 +764,7 @@ static int tcp_write_to_sendbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TM
 			tcb->send_buf[(tcb->send_unack+tcb->send_used_len)%STREAM_SEND_BUF] = *data++;
 			tcb->send_used_len++;
 			remain--;
-			LOG("1byte wrote to sendbuf");
+			//LOG("1byte wrote to sendbuf");
 		}else{
 			sig_sem(tcb->sbufsem);
 			if(tslp_tsk(timeout) == E_TMOUT){
@@ -753,7 +778,7 @@ static int tcp_write_to_sendbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TM
 	}
 	tcb->send_waiting = false;
 	sig_sem(tcb->sbufsem);
-	LOG("completed(%d byte(s) wrote.)", len - remain);
+	//LOG("completed(%d byte(s) wrote.)", len - remain);
 	return len - remain;
 }
 
@@ -1280,9 +1305,11 @@ void tcp_timer_task(intptr_t exinf) {
 	while(true){
 		wai_sem(TCP_TIMER_SEM);
 		if(tcptimer!=NULL){
-			tcptimer->sec--;
+			tcptimer->remaining--;
+			LOG("[timer] %d", tcptimer->remaining);
 		}
-		while(tcptimer!=NULL && tcptimer->sec==0){
+		while(tcptimer!=NULL && tcptimer->remaining<=0){
+			LOG("[timer] timeout! type:%d", tcptimer->type);
 			switch(tcptimer->type){
 			case TCP_TIMER_REMOVED:
 				if(tcptimer->option==NULL)
@@ -1298,7 +1325,7 @@ void tcp_timer_task(intptr_t exinf) {
 														 tcptimer->option->option.resend.end_index,
 														 tcptimer->option->option.resend.start_seq,
 														 tcptimer->option->option.resend.end_seq)){
-					tcp_timer_add(tcptimer->sock, tcptimer->sec*2, TCP_TIMER_TYPE_RESEND, tcptimer->option);
+					tcp_timer_add_locked(tcptimer->sock, tcptimer->sec*2, TCP_TIMER_TYPE_RESEND, tcptimer->option);
 				}
 				break;
 			case TCP_TIMER_TYPE_TIMEWAIT:

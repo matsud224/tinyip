@@ -356,7 +356,6 @@ void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
 		iphdr_item->buf = new char[sizeof(ip_hdr)];
 		prep_iphdr((ip_hdr*)iphdr_item->buf, sizeof(ip_hdr)+remainlen, currentid, false, 0, proto, dstaddr);
 		iphdr_item->next = data;
-
 		arp_send(iphdr_item, dstaddr, ETHERTYPE_IP);
     }else{
 		//フラグメント化必要
