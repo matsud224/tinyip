@@ -67,7 +67,14 @@ uint16_t checksum2(uint16_t *data1, uint16_t *data2, int len1, int len2){
 	uint16_t *data = data1;
 	int complen = 0;
 	for(; len>1;len-=2){
-		sum+=*data++;
+		if(complen == len1-1){
+			//data1側がのこり1byte
+			sum+= ((uint8_t)*data) | ((*data2)<<8);
+			complen = len1+1;
+			data = &(data2[1]);
+		}else{
+			sum+=*data++;
+		}
 		complen+=2;
 		if(sum &0x80000000)
 			sum=(sum&0xffff)+(sum>>16);
@@ -92,8 +99,17 @@ uint16_t checksum_hdrstack(hdrstack *hs){
 	uint32_t thisstack_len = 0;
 	uint16_t *data = (uint16_t*)hs->buf;
 	for(; len>1;len-=2){
-		sum+=*data++;
-		thisstack_len+=2;
+		if(thisstack_len == hs->size-1){
+			//のこり1byte
+			sum+= ((uint8_t)(*data)) | ((hs->next->buf[0])<<8);
+			hs = hs->next;
+			data = (uint16_t*)(&(hs->buf[1]));
+			thisstack_len = 1;
+		}else{
+			sum+=*data++;
+			thisstack_len+=2;
+		}
+
 		if(thisstack_len == hs->size){
 			hs = hs->next;
 			data = (uint16_t*)hs->buf;

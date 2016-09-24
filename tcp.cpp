@@ -36,6 +36,7 @@ struct tcp_ctrlblock{
 	uint32_t send_wl1; //直近のウィンドウ更新に使用されたセグメントのシーケンス番号
 	uint32_t send_wl2; //直近のウィンドウ更新に使用されたセグメントの確認番号
 	uint32_t send_used_len; //送信バッファに入っているデータのバイト数
+	uint32_t send_unsent_len; //送信バッファに入っているデータの内、１度も送信されていないバイト数
 	uint32_t iss; //初期送信シーケンス番号
 	char *send_buf;
 	bool send_waiting;
@@ -179,7 +180,7 @@ static void tcp_timer_add_locked(socket_t *sock, int sec, int type, tcp_timer_op
 	tim->option = opt;
 	tim->sec = sec;
 
-	LOG("new timer: sec=%d, type=%d", sec, type);
+	//LOG("new timer: sec=%d, type=%d", sec, type);
 
 	tcp_timer_t **pp = &tcptimer;
 	while(*pp != NULL){
@@ -286,6 +287,7 @@ static void tcb_reset(tcp_ctrlblock *tcb){
 	tcb->send_next_seq = 0;
 	tcb->send_next =0;
 	tcb->send_used_len = 0;
+	tcb->send_unsent_len = 0;
 	tcb->send_window = 0;
 	tcb->send_wl1 = 0;
 	tcb->send_wl2 = 0;
@@ -336,6 +338,7 @@ static void tcb_allocbuf(tcp_ctrlblock *tcb){
 	tcb->recv_buf = new char[STREAM_RECV_BUF];
 	tcb->send_buf = new char[STREAM_SEND_BUF];
 	tcb->send_used_len = 0;
+	tcb->send_unsent_len = 0;
 	tcb->send_wl1 = 0;
 	tcb->send_wl2 = 0;
 	tcb->recv_window = STREAM_RECV_BUF;
@@ -401,7 +404,7 @@ static hdrstack *make_tcpopt(bool contain_mss, uint16_t mss){
 	if(contain_mss){
 		opt_next[0] = TCP_OPT_MSS;
 		opt_next[1] = 4;
-		*(opt_next+2) = hton16(mss);
+		*((uint16_t*)(opt_next+2)) = hton16(mss);
 		opt_next += 4;
 	}
 
@@ -412,16 +415,17 @@ static hdrstack *make_tcpopt(bool contain_mss, uint16_t mss){
 static uint16_t get_tcpopt_mss(tcp_hdr *thdr){
 	uint8_t *optptr = ((uint8_t*)(thdr+1));
 	uint8_t *datastart =  ((uint8_t*)thdr) + thdr->th_off*4;
-	while(optptr++ < datastart){
+	while(optptr < datastart){
 		switch(*optptr){
 		case TCP_OPT_END_OF_LIST:
 			return -1;
 		case TCP_OPT_NOP:
+			optptr++;
 			break;
 		case TCP_OPT_MSS:
-			return *((uint16_t*)(optptr+1));
+			return ntoh16(*((uint16_t*)(optptr+2)));
 		default:
-			optptr += (*optptr)-2;
+			optptr += (*(optptr+1))-2;
 			break;
 		}
 	}
@@ -505,7 +509,7 @@ static void tcp_process_listen(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, u
 		newtcb->recv_next_seq = ntoh32(thdr->th_seq)+1;
 		newtcb->recv_next = 0;
 		newtcb->irs = ntoh32(thdr->th_seq);
-		newtcb->mss = get_tcpopt_mss(thdr);
+		newtcb->mss = MIN(get_tcpopt_mss(thdr), MSS);
 		if(tcb->accept_waiting) wup_tsk(tcb->sock->ownertsk);
 		sig_sem(SOCKTBL_SEM);
 	}
@@ -522,6 +526,8 @@ static void tcp_process_synsent(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, 
 				tcp_send_ctrlseg(ntoh32(thdr->th_ack), 0, 0, TH_RST, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
 			}
 			goto exit;
+		}else{
+			tcb->send_unack_seq++;
 		}
 	}
 	if(thdr->th_flags & TH_RST){
@@ -571,7 +577,7 @@ static void tcp_write_to_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len){
 static hdrstack *sendbuf_to_hdrstack(tcp_ctrlblock *tcb, uint32_t from, uint32_t len, int *next_from){
 	hdrstack *payload1 = new hdrstack(false);
 	hdrstack *payload2 = NULL;
-
+	//LOG("buf2hs->%u", len);
 	if(STREAM_SEND_BUF - from >= len){
 		//折り返さない
 		payload1->size = len;
@@ -582,9 +588,9 @@ static hdrstack *sendbuf_to_hdrstack(tcp_ctrlblock *tcb, uint32_t from, uint32_t
 	}else{
 		//折り返す
 		payload1->size = STREAM_SEND_BUF-from;
-		payload1->next = payload2;
 		payload1->buf = &(tcb->send_buf[from]);
 		payload2 = new hdrstack(false);
+		payload1->next = payload2;
 		payload2->size = len - payload1->size;
 		payload2->next = NULL;
 		payload2->buf = tcb->send_buf;
@@ -595,28 +601,42 @@ static hdrstack *sendbuf_to_hdrstack(tcp_ctrlblock *tcb, uint32_t from, uint32_t
 
 
 static void tcp_send_from_buf(tcp_ctrlblock *tcb){
-	int sendbuf_tail = (tcb->send_unack+tcb->send_used_len) % STREAM_SEND_BUF -1;
-	uint32_t send_start = tcb->send_next;
-	uint32_t send_last = MIN(tcb->send_next+tcb->send_window-1, sendbuf_tail);
+	wai_sem(tcb->sbufsem);
 
-	if(!between_le_lt(tcb->send_unack, tcb->send_next, MOD(tcb->send_unack+tcb->send_used_len, STREAM_SEND_BUF))){
-		LOG("No data to send. (send_unack=%d, send_next=%d, tail=%d)",
-				tcb->send_unack, tcb->send_next,sendbuf_tail);
+	uint32_t sendbuf_tail_seq = tcb->send_unack_seq+tcb->send_used_len-1;
+	uint32_t send_start_seq = tcb->send_unack_seq+tcb->send_used_len-tcb->send_unsent_len;
+	uint32_t send_last_seq;
+
+	if(tcb->send_unsent_len<=0)
+		goto sendfin;
+
+	if(tcb->send_next_seq == tcb->send_unack_seq+tcb->send_window)
+		goto sendfin;
+
+	if(between_le_le(send_start_seq, tcb->send_unack_seq+tcb->send_window-1, sendbuf_tail_seq))
+		send_last_seq = tcb->send_unack_seq+tcb->send_window-1;
+	else
+		send_last_seq = sendbuf_tail_seq;
+
+	if(!between_le_le(tcb->send_unack_seq, send_start_seq, send_last_seq)){
+		lcd.cls(); lcd.printf("%u / %u / %u /(%u)", tcb->send_unack_seq, send_start_seq, send_last_seq, tcb->iss);
 		goto sendfin; //新たに送信可能なものはない
 	}
 
 	uint32_t remaining;
-	LOG("send start=%d, last=%d(send_unack=%d, send_next=%d, tail=%d)", send_start, send_last,
-		tcb->send_unack, tcb->send_next,sendbuf_tail);
-	if(send_start < send_last){
-		remaining = send_last - send_start + 1;
+
+	if(send_start_seq <= send_last_seq){
+		remaining = send_last_seq - send_start_seq + 1;
 	}else{
-		remaining = STREAM_SEND_BUF - send_last;
-		remaining += send_start + 1;
+		remaining = 0xffffffff - send_last_seq;
+		remaining += send_start_seq + 1;
 	}
 
-	if(remaining == 0)
+	LOG("r=%u", remaining);
+
+	if(remaining <= 0)
 		goto sendfin;
+
 
 	tcp_hdr *tcphdr_template;
 	tcphdr_template = new tcp_hdr;
@@ -628,7 +648,15 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 	tcphdr_template->th_urp = 0;
 	tcphdr_template->th_x2 = 0;
 
-	while(remaining > 0){
+	uint32_t send_start;
+	send_start = MOD(send_start_seq-(tcb->iss+1), STREAM_SEND_BUF);
+	uint32_t send_last;
+	send_last = MOD(send_last_seq-(tcb->iss+1), STREAM_SEND_BUF);
+
+	LOG("send ss=%u, sl=%u, s=%u, l=%u, unsent=%u",
+		send_start_seq, send_last_seq, send_start, send_last, tcb->send_unsent_len);
+
+	while(tcb->send_unsent_len>0 && remaining > 0){
 		int next_start;
 		int payload_len = MIN(tcb->mss, remaining);
 		hdrstack *payload = sendbuf_to_hdrstack(tcb, send_start, payload_len, &next_start);
@@ -641,6 +669,7 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 		opt->option.resend.end_seq = tcb->send_next_seq + payload_len -1;
 
 		remaining -= payload_len;
+		tcb->send_unsent_len-=payload_len;
 		send_start = next_start;
 
 		hdrstack *tcpseg = new hdrstack(true);
@@ -649,14 +678,17 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 		memcpy(tcpseg->buf, tcphdr_template, sizeof(tcp_hdr));
 		tcpseg->next = payload;
 
+
 		tcp_hdr *thdr = (tcp_hdr*)tcpseg->buf;
 		thdr->th_seq = hton32(tcb->send_next_seq);
 		thdr->th_ack = hton32(tcb->recv_next_seq);
-		tcb->send_next_seq += payload_len;
-		tcb->send_next = (tcb->send_next+payload_len)%STREAM_SEND_BUF;
 		thdr->th_win = hton16(tcb->recv_window);
 		thdr->th_sum = tcp_checksum_send(tcpseg, IPADDR, tcb->sock->partner_addr);
 
+		tcb->send_next_seq += payload_len;
+		tcb->send_next = (tcb->send_next+payload_len)%STREAM_SEND_BUF;
+
+		LOG("segment->%d", hdrstack_totallen(tcpseg));
 		LOG("tcp segment was sent (len=%d)", payload_len);
 		ip_send(tcpseg, tcb->sock->partner_addr, IPTYPE_TCP);
 
@@ -677,15 +709,16 @@ sendfin:
 		tcb->send_next = (tcb->send_next+1)%STREAM_SEND_BUF;
 
 		tcp_send_ctrlseg(tcb->myfin_seq, tcb->recv_next_seq, tcb->recv_window, TH_FIN|TH_ACK, NULL, tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
-		LOG("FIN sent. (send_unack=%d, send_next=%d, tail=%d, myfin_seq)",
-				tcb->send_unack, tcb->send_next,sendbuf_tail, tcb->myfin_seq);
+
 		tcp_timer_add(tcb->sock, tcb->rtt, TCP_TIMER_TYPE_RESEND, opt);
 	}
 
+	sig_sem(tcb->sbufsem);
 	return;
 }
 
 static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index, uint32_t start_seq, uint32_t end_seq){
+	wai_sem(tcb->sbufsem);
 	LOG("resend start...");
 	uint32_t send_start = start_index, send_last = end_index;
 	uint32_t send_next_seq = start_seq, send_next = start_index;
@@ -695,10 +728,12 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 		//FINの再送
 		tcp_send_ctrlseg(tcb->myfin_seq, tcb->recv_next_seq, tcb->recv_window, TH_FIN|TH_ACK, NULL, tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
 		LOG("FIN resend");
+		sig_sem(tcb->sbufsem);
 		return true;
 	}
-	if(!between_le_lt(tcb->send_unack, end_index, MOD(tcb->send_unack+tcb->send_used_len, STREAM_SEND_BUF))){
+	if(!between_le_le(tcb->send_unack, end_index, MOD(tcb->send_unack+tcb->send_used_len-1, STREAM_SEND_BUF))){
 		LOG("no resend");
+		sig_sem(tcb->sbufsem);
 		return false; //送信可能なものはない
 	}
 
@@ -711,6 +746,7 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 
 	if(remaining == 0){
 		LOG("no resend: remaining=0");
+		sig_sem(tcb->sbufsem);
 		return false;
 	}else{
 		LOG("resend %d byte(s)", remaining);
@@ -752,6 +788,8 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 		mcled_change(COLOR_LIGHTBLUE);
 	}
 
+	sig_sem(tcb->sbufsem);
+
 	return true;
 }
 
@@ -763,10 +801,12 @@ static int tcp_write_to_sendbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TM
 		if(tcb->send_used_len < tcb->send_window){
 			tcb->send_buf[(tcb->send_unack+tcb->send_used_len)%STREAM_SEND_BUF] = *data++;
 			tcb->send_used_len++;
+			tcb->send_unsent_len++;
 			remain--;
 			//LOG("1byte wrote to sendbuf");
 		}else{
 			sig_sem(tcb->sbufsem);
+			LOG("send buffer is full.(remain=%d) zzz...", remain);
 			if(tslp_tsk(timeout) == E_TMOUT){
 				wai_sem(tcb->sbufsem);
 				tcb->send_waiting = false;
@@ -774,6 +814,7 @@ static int tcp_write_to_sendbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TM
 				return len-remain;
 			}
 			wai_sem(tcb->sbufsem);
+			LOG("wake up!");
 		}
 	}
 	tcb->send_waiting = false;
@@ -888,10 +929,11 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 		case TCP_STATE_SYN_RCVD:
 			if(between_le_le(tcb->send_unack_seq, hton32(thdr->th_ack), tcb->send_next_seq)){
 				mcled_change(COLOR_BLUE);
-				tcb->send_window = ntoh16(thdr->th_win);
+				tcb->send_window = MIN(ntoh16(thdr->th_win), STREAM_SEND_BUF);
 				tcb->send_wl1 = ntoh32(thdr->th_seq);
 				tcb->send_wl2 = ntoh32(thdr->th_ack);
 				tcb->state = TCP_STATE_ESTABLISHED;
+				tcb->send_unack_seq = hton32(thdr->th_ack);
 				tcb_allocbuf(tcb);
 				if(tcb->establish_waiting) wup_tsk(tcb->sock->ownertsk);
 			}else{
@@ -904,12 +946,20 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 		case TCP_STATE_CLOSE_WAIT:
 		case TCP_STATE_CLOSING:
 			if(between_lt_le(tcb->send_unack_seq, ntoh32(thdr->th_ack), tcb->send_next_seq)){
+				uint32_t unack_seq_before = tcb->send_unack_seq;
 				tcb->send_unack_seq = ntoh32(thdr->th_ack);
-				uint32_t unack_before = tcb->send_unack;
-				tcb->send_unack = MOD(tcb->send_unack_seq - tcb->iss - 1, STREAM_SEND_BUF);
-				tcb->send_used_len -= tcb->send_unack - unack_before;
+
+				if(tcb->send_unack_seq >= (tcb->iss+1))
+					tcb->send_unack = MOD(tcb->send_unack_seq - (tcb->iss+1), STREAM_SEND_BUF);
+				else
+					tcb->send_unack = MOD((0xffffffff - (tcb->iss+1)) + tcb->send_unack_seq+1, STREAM_SEND_BUF);
+
+				if(tcb->send_unack_seq >= unack_seq_before)
+					tcb->send_used_len -= tcb->send_unack_seq - unack_seq_before;
+				else
+					tcb->send_used_len = (0xffffffff - unack_seq_before + 1) + tcb->send_unack_seq;
 			}else if(ntoh32(thdr->th_ack) != tcb->send_unack_seq){
-				LOG("ACKSEQ received = %d, tcb = %d", ntoh32(thdr->th_ack), tcb->send_unack_seq);
+				//LOG("ACKSEQ received = %d, tcb = %d", ntoh32(thdr->th_ack), tcb->send_unack_seq);
 				tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
 				goto exit;
 			}
@@ -917,7 +967,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 				if(between_lt_le(tcb->send_wl1, ntoh32(thdr->th_seq), tcb->recv_next_seq+tcb->recv_window) ||
 					 (tcb->send_wl1==ntoh32(thdr->th_seq)
 						&& between_le_le(tcb->send_wl2, ntoh32(thdr->th_ack), tcb->send_next_seq))){
-					tcb->send_window = ntoh16(thdr->th_win);
+					tcb->send_window = MIN(ntoh16(thdr->th_win), STREAM_SEND_BUF);
 					tcb->send_wl1 = ntoh32(thdr->th_seq);
 					tcb->send_wl2 = ntoh32(thdr->th_ack);
 				}
@@ -1306,10 +1356,10 @@ void tcp_timer_task(intptr_t exinf) {
 		wai_sem(TCP_TIMER_SEM);
 		if(tcptimer!=NULL){
 			tcptimer->remaining--;
-			LOG("[timer] %d", tcptimer->remaining);
+			//LOG("[timer] %d", tcptimer->remaining);
 		}
 		while(tcptimer!=NULL && tcptimer->remaining<=0){
-			LOG("[timer] timeout! type:%d", tcptimer->type);
+			//LOG("[timer] timeout! type:%d", tcptimer->type);
 			switch(tcptimer->type){
 			case TCP_TIMER_REMOVED:
 				if(tcptimer->option==NULL)
@@ -1360,8 +1410,9 @@ void tcp_timer_cyc(intptr_t exinf) {
 
 void tcp_send_task(intptr_t exinf){
 	while(true){
+		//LOG("[send task waiting]");
 		wai_sem(SOCKTBL_SEM);
-		LOG("[send task start]");
+		//LOG("[send task start]");
 		for(int i=0;i<MAX_SOCKET;i++){
 			socket_t *sock = &sockets[i];
 			if(sock->type==SOCK_STREAM && sock->ctrlblock.tcb!=NULL){
@@ -1371,13 +1422,18 @@ void tcp_send_task(intptr_t exinf){
 				case TCP_STATE_FIN_WAIT_1:
 				case TCP_STATE_CLOSING:
 				case TCP_STATE_LAST_ACK:
-					LOG("**send_from_buf**");
+					//LOG("**send_from_buf**");
 					tcp_send_from_buf(sock->ctrlblock.tcb);
+					if(sock->ctrlblock.tcb->send_waiting){
+						//LOG("wake up ... %dbyte(s)", sock->ctrlblock.tcb->send_used_len);
+						wup_tsk(sock->ownertsk);
+					}
 					break;
 				}
 			}
 		}
 		sig_sem(SOCKTBL_SEM);
+		//LOG("[send task sleeping]");
 		slp_tsk();
 	}
 }
