@@ -604,7 +604,7 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 	wai_sem(tcb->sbufsem);
 
 	uint32_t sendbuf_tail_seq = tcb->send_unack_seq+tcb->send_used_len-1;
-	uint32_t send_start_seq = tcb->send_unack_seq+tcb->send_used_len-tcb->send_unsent_len;
+	uint32_t send_start_seq = tcb->send_next_seq;
 	uint32_t send_last_seq;
 
 	if(tcb->send_unsent_len<=0)
@@ -731,17 +731,17 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 		sig_sem(tcb->sbufsem);
 		return true;
 	}
-	if(!between_le_le(tcb->send_unack, end_index, MOD(tcb->send_unack+tcb->send_used_len-1, STREAM_SEND_BUF))){
+	if(!between_le_le(tcb->send_unack_seq, end_seq, MOD(tcb->send_unack_seq+tcb->send_used_len-1, STREAM_SEND_BUF))){
 		LOG("no resend");
 		sig_sem(tcb->sbufsem);
 		return false; //送信可能なものはない
 	}
 
-	if(send_start < send_last){
-		remaining = send_last - send_start + 1;
+	if(start_seq <= end_seq){
+		remaining = end_seq - start_seq + 1;
 	}else{
-		remaining = STREAM_SEND_BUF - send_last;
-		remaining += send_start + 1;
+		remaining = 0xffffffff - end_seq;
+		remaining += start_seq + 1;
 	}
 
 	if(remaining == 0){
@@ -1356,18 +1356,18 @@ void tcp_timer_task(intptr_t exinf) {
 		wai_sem(TCP_TIMER_SEM);
 		if(tcptimer!=NULL){
 			tcptimer->remaining--;
-			//LOG("[timer] %d", tcptimer->remaining);
+			LOG("[timer] %d", tcptimer->remaining);
 		}
 		while(tcptimer!=NULL && tcptimer->remaining<=0){
-			//LOG("[timer] timeout! type:%d", tcptimer->type);
+			LOG("[timer] timeout! type:%d", tcptimer->type);
 			switch(tcptimer->type){
 			case TCP_TIMER_REMOVED:
-				if(tcptimer->option==NULL)
+				if(tcptimer->option!=NULL)
 					delete tcptimer->option;
 				break;
 			case TCP_TIMER_TYPE_FINACK:
 				tcb_reset(tcptimer->sock->ctrlblock.tcb);
-				if(tcptimer->option==NULL)
+				if(tcptimer->option!=NULL)
 					delete tcptimer->option;
 				break;
 			case TCP_TIMER_TYPE_RESEND:
@@ -1380,7 +1380,7 @@ void tcp_timer_task(intptr_t exinf) {
 				break;
 			case TCP_TIMER_TYPE_TIMEWAIT:
 				tcb_reset(tcptimer->sock->ctrlblock.tcb);
-				if(tcptimer->option==NULL)
+				if(tcptimer->option!=NULL)
 					delete tcptimer->option;
 				break;
 			case TCP_TIMER_TYPE_DELAYACK:
@@ -1388,7 +1388,7 @@ void tcp_timer_task(intptr_t exinf) {
 					tcp_ctrlblock *tcb = tcptimer->sock->ctrlblock.tcb;
 					tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL,
 											tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
-					if(tcptimer->option==NULL)
+					if(tcptimer->option!=NULL)
 						delete tcptimer->option;
 					break;
 				}

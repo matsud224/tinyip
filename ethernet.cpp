@@ -33,6 +33,8 @@ void ethernet_initialize(){
 	dly_tsk(1000); //1秒ぐらい待ったほうがいいみたい
 }
 
+static int recvskip_counter = 0;
+
 void etherrecv_task(intptr_t exinf) {
 	wait(1);
     while(true){
@@ -45,6 +47,13 @@ void etherrecv_task(intptr_t exinf) {
 				char *buf = new char[size];
 				ethernet_read(buf, size);
 				sig_sem(ETHERIO_SEM);
+
+				if(ETHER_RECV_SKIP >= 0 && recvskip_counter >= ETHER_RECV_SKIP){
+					recvskip_counter = 0;
+					continue;
+				}
+				recvskip_counter++;
+
 				ether_hdr *ehdr = (ether_hdr*)buf;
 				ether_flame *flm = new ether_flame;
 				flm->size = size;
@@ -69,17 +78,17 @@ void etherrecv_task(intptr_t exinf) {
     }
 }
 
-static int counter = 0;
+static int sendskip_counter = 0;
 
 void ethernet_send(ether_flame *flm){
 	wai_sem(ETHERIO_SEM);
 
-	if(ETHER_SEND_SKIP >= 0 && counter >= ETHER_SEND_SKIP){
-		counter = 0;
+	if(ETHER_SEND_SKIP >= 0 && sendskip_counter >= ETHER_SEND_SKIP){
+		sendskip_counter = 0;
 		sig_sem(ETHERIO_SEM);
 		return;
 	}
-	counter++;
+	sendskip_counter++;
 
 	ethernet_write(flm->buf, flm->size);
 	ethernet_send();
@@ -90,12 +99,12 @@ void ethernet_send(ether_flame *flm){
 void ethernet_send(hdrstack *flm){
 	wai_sem(ETHERIO_SEM);
 
-	if(ETHER_SEND_SKIP >= 0 && counter >= ETHER_SEND_SKIP){
-		counter = 0;
+	if(ETHER_SEND_SKIP >= 0 && sendskip_counter >= ETHER_SEND_SKIP){
+		sendskip_counter = 0;
 		sig_sem(ETHERIO_SEM);
 		return;
 	}
-	counter++;
+	sendskip_counter++;
 
 	while(flm!=NULL){
 		ethernet_write(flm->buf, flm->size);
