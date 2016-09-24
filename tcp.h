@@ -10,7 +10,7 @@
 struct tcp_ctrlblock;
 
 
-tcp_ctrlblock *tcb_new(socket_t *sock, ID recvsem, ID sendsem);
+tcp_ctrlblock *tcb_new(socket_t *sock, ID recvsem, ID sendsem, ID infosem);
 void tcb_dispose(tcp_ctrlblock *tcb);
 void tcp_process(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr);
 int tcp_connect(tcp_ctrlblock *tcb, uint8_t to_addr[], uint16_t to_port, uint16_t my_port, TMO timeout);

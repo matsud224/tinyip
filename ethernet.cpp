@@ -50,6 +50,8 @@ void etherrecv_task(intptr_t exinf) {
 
 				if(ETHER_RECV_SKIP >= 0 && recvskip_counter >= ETHER_RECV_SKIP){
 					recvskip_counter = 0;
+					delete [] buf;
+					LOG("rejected");
 					continue;
 				}
 				recvskip_counter++;

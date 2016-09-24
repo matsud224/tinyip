@@ -15,8 +15,8 @@
 #define STREAM_RECV_BUF 2048
 #define STREAM_SEND_BUF 2048
 
-#define ETHER_SEND_SKIP 10 //設定した回数の送信ごとにフレームをスキップする(負の値で無効)
-#define ETHER_RECV_SKIP 10
+#define ETHER_SEND_SKIP -1 //設定した回数の送信ごとにフレームをスキップする(負の値で無効)
+#define ETHER_RECV_SKIP -1
 
 extern uint8_t IPADDR[IP_ADDR_LEN]; //192.168.0.10/24
 extern uint8_t NETMASK[IP_ADDR_LEN];

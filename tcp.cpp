@@ -21,6 +21,12 @@ struct tcp_timer_t;
 
 static TextLCD lcd(D0, D1, D2, D3, D4, D5);
 
+struct tcp_hole{
+	tcp_hole *next;
+	uint32_t start_seq;
+	uint32_t end_seq;
+};
+
 struct tcp_ctrlblock{
 	ID rbufsem;
 	ID sbufsem;
@@ -47,6 +53,7 @@ struct tcp_ctrlblock{
 	uint32_t irs; //初期受信シーケンス番号
 	char *recv_buf;
 	bool recv_waiting;
+	tcp_hole *recv_holelist;
 
 	int myfin_state;
 #define FIN_NOTREQUESTED 0
@@ -90,6 +97,22 @@ struct tcp_ctrlblock{
 #define TCP_OPT_S_ACK_PERM 4
 #define TCP_OPT_S_ACK 5
 #define TCP_OPT_TIMESTAMP 6
+
+
+#define TCB_WAI_SRI(tcb) (wai_sem(tcb->sbufsem),wai_sem(tcb->rbufsem),wai_sem(tcb->infosem))
+#define TCB_SIG_SRI(tcb) (sig_sem(tcb->infosem),sig_sem(tcb->rbufsem),sig_sem(tcb->sbufsem))
+#define TCB_WAI_SR(tcb) (wai_sem(tcb->sbufsem),wai_sem(tcb->rbufsem))
+#define TCB_SIG_SR(tcb) (sig_sem(tcb->rbufsem),sig_sem(tcb->sbufsem))
+#define TCB_WAI_RI(tcb) (wai_sem(tcb->rbufsem),wai_sem(tcb->infosem))
+#define TCB_SIG_RI(tcb) (sig_sem(tcb->infosem),sig_sem(tcb->rbufsem))
+#define TCB_WAI_SI(tcb) (wai_sem(tcb->sbufsem),wai_sem(tcb->infosem))
+#define TCB_SIG_SI(tcb) (sig_sem(tcb->infosem),sig_sem(tcb->sbufsem))
+#define TCB_WAI_S(tcb) (wai_sem(tcb->sbufsem))
+#define TCB_SIG_S(tcb) (sig_sem(tcb->sbufsem))
+#define TCB_WAI_R(tcb) (wai_sem(tcb->rbufsem))
+#define TCB_SIG_R(tcb) (sig_sem(tcb->rbufsem))
+#define TCB_WAI_I(tcb) (wai_sem(tcb->infosem))
+#define TCB_SIG_I(tcb) (sig_sem(tcb->infosem))
 
 struct tcp_timer_option{
 	union{
@@ -204,6 +227,7 @@ static void tcp_timer_add_locked(socket_t *sock, int sec, int type, tcp_timer_op
 }
 
 static void tcp_timer_remove_all(socket_t *sock){
+	wai_sem(TCP_TIMER_SEM);
 	tcp_timer_t *ptr = tcptimer;
 
 	while(ptr!=NULL){
@@ -211,6 +235,8 @@ static void tcp_timer_remove_all(socket_t *sock){
 			ptr->type = TCP_TIMER_REMOVED;
 		ptr = ptr->next;
 	}
+
+	sig_sem(TCP_TIMER_SEM);
 
 	return;
 }
@@ -256,6 +282,7 @@ static bool between_lt_lt(uint32_t a, uint32_t b, uint32_t c){
 }
 
 static void tcb_reset(tcp_ctrlblock *tcb){
+	TCB_WAI_SRI(tcb);
 	if(tcb->backlog>0){
 		int idx = tcb->sockqueue_head;
 		while(tcb->sockqueue_len>0){
@@ -274,7 +301,7 @@ static void tcb_reset(tcp_ctrlblock *tcb){
 	tcb->accept_waiting = false;
 
 	tcb->state = TCP_STATE_CLOSED;
-	tcb->rtt = 3;
+	tcb->rtt = 1;
 	tcb->myfin_state = FIN_NOTREQUESTED;
 
 	tcb->backlog = 0;
@@ -295,13 +322,14 @@ static void tcb_reset(tcp_ctrlblock *tcb){
 	tcb->recv_next_seq = 0;
 	tcb->recv_next = 0 ;
 	tcb->recv_window = STREAM_RECV_BUF;
-
+	tcb->recv_holelist = NULL;
+	TCB_SIG_SRI(tcb);
 	return;
 }
 
 //メモリ節約のため、接続を確立するまでバッファの領域確保は行わない
 //確保は、後からtcp_allocbuf()で行う
-tcp_ctrlblock *tcb_new(socket_t *sock, ID recvsem, ID sendsem){
+tcp_ctrlblock *tcb_new(socket_t *sock, ID recvsem, ID sendsem, ID infosem){
 	tcp_ctrlblock *tcb = new tcp_ctrlblock;
 	tcb->recv_buf = NULL;
 	tcb->send_buf = NULL;
@@ -309,6 +337,7 @@ tcp_ctrlblock *tcb_new(socket_t *sock, ID recvsem, ID sendsem){
 	tcb->backlog = 0;
 	tcb->rbufsem = recvsem;
 	tcb->sbufsem = sendsem;
+	tcb->infosem = infosem;
 	tcb->sock = sock;
 
 	tcb_reset(tcb);
@@ -342,7 +371,6 @@ static void tcb_allocbuf(tcp_ctrlblock *tcb){
 	tcb->send_wl1 = 0;
 	tcb->send_wl2 = 0;
 	tcb->recv_window = STREAM_RECV_BUF;
-
 	return;
 }
 
@@ -486,23 +514,27 @@ static void tcp_process_listen(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, u
 		LOG("connection requested...");
 		//ソケットキューに入れる
 		int newsock;
+		TCB_WAI_I(tcb);
 		if(tcb->backlog > tcb->sockqueue_len){
 			//空き
 			wai_sem(SOCKTBL_SEM);
 			if((newsock=find_unusedsocket()) == -1){
 				LOG("Error: Socket table is full.");
 				sig_sem(SOCKTBL_SEM);
+				TCB_SIG_I(tcb);
 				goto exit;
 			}
 			tcb->sockqueue[(tcb->sockqueue_head+tcb->sockqueue_len)%tcb->backlog] = newsock;
 			tcb->sockqueue_len++;
 			tcb->sock = &sockets[newsock];
+			TCB_SIG_I(tcb);
 		}else{
 			LOG("Error: Socket queue is full.");
+			TCB_SIG_I(tcb);
 			goto exit;
 		}
         copy_socket(sock, newsock);
-        tcp_ctrlblock *newtcb = tcb_new(&sockets[newsock], tcb->rbufsem, tcb->sbufsem);
+        tcp_ctrlblock *newtcb = tcb_new(&sockets[newsock], tcb->rbufsem, tcb->sbufsem, tcb->infosem);
         sockets[newsock].ctrlblock.tcb = newtcb;
         memcpy(sockets[newsock].partner_addr, iphdr->ip_src, IP_ADDR_LEN);
         sockets[newsock].partner_port = ntoh16(thdr->th_sport);
@@ -520,6 +552,7 @@ exit:
 }
 
 static void tcp_process_synsent(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, uint16_t payload_len, tcp_ctrlblock *tcb){
+	TCB_WAI_SRI(tcb);
 	if(thdr->th_flags & TH_ACK){
 		if(ntoh32(thdr->th_ack) != tcb->iss+1){
 			if(!(thdr->th_flags & TH_RST)){
@@ -546,30 +579,37 @@ static void tcp_process_synsent(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, 
 			tcb->state = TCP_STATE_SYN_RCVD;
 			tcp_send_ctrlseg(tcb->iss, tcb->recv_next_seq, 0, TH_SYN|TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
 		}else{
-			tcb->state = TCP_STATE_ESTABLISHED;
 			tcb_allocbuf(tcb);
+			tcb->state = TCP_STATE_ESTABLISHED;
 			tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, 0, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
 			if(tcb->establish_waiting) wup_tsk(tcb->sock->ownertsk);
 		}
 	}
 
 exit:
+	TCB_SIG_SRI(tcb);
 	delete flm;
 	return;
 }
 
-static void tcp_write_to_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len){
-	wai_sem(tcb->rbufsem);
+static void tcp_write_to_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, uint32_t start_seq, uint32_t end_seq){
 	uint32_t remain = len;
-	while(tcb->recv_window > 0 && remain > 0){
-		tcb->recv_buf[tcb->recv_next] = *data++;
-		tcb->recv_next = (tcb->recv_next+1)%STREAM_RECV_BUF;
-		tcb->recv_next_seq++;
-		tcb->recv_window--;
-		remain--;
+	uint32_t start_index;
+	start_index = MOD(start_seq-(tcb->irs+1), STREAM_RECV_BUF);
+	uint32_t end_index;
+	end_index = MOD(end_seq-(tcb->irs+1), STREAM_RECV_BUF);
+
+	if(tcb->recv_next_seq == start_seq){
+		while(tcb->recv_window > 0 && remain > 0){
+			tcb->recv_buf[tcb->recv_next] = *data++;
+			tcb->recv_next = (tcb->recv_next+1)%STREAM_RECV_BUF;
+			tcb->recv_next_seq++;
+			tcb->recv_window--;
+			remain--;
+		}
 	}
+
 	if(tcb->recv_waiting) wup_tsk(tcb->sock->ownertsk);
-	sig_sem(tcb->rbufsem);
 	LOG("received %d byte(s)", len);
 }
 
@@ -601,8 +641,6 @@ static hdrstack *sendbuf_to_hdrstack(tcp_ctrlblock *tcb, uint32_t from, uint32_t
 
 
 static void tcp_send_from_buf(tcp_ctrlblock *tcb){
-	wai_sem(tcb->sbufsem);
-
 	uint32_t sendbuf_tail_seq = tcb->send_unack_seq+tcb->send_used_len-1;
 	uint32_t send_start_seq = tcb->send_next_seq;
 	uint32_t send_last_seq;
@@ -710,15 +748,17 @@ sendfin:
 
 		tcp_send_ctrlseg(tcb->myfin_seq, tcb->recv_next_seq, tcb->recv_window, TH_FIN|TH_ACK, NULL, tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
 
+		if(tcb->state == TCP_STATE_CLOSE_WAIT)
+			tcb->state = TCP_STATE_LAST_ACK;
+
 		tcp_timer_add(tcb->sock, tcb->rtt, TCP_TIMER_TYPE_RESEND, opt);
 	}
 
-	sig_sem(tcb->sbufsem);
 	return;
 }
 
 static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index, uint32_t start_seq, uint32_t end_seq){
-	wai_sem(tcb->sbufsem);
+	TCB_WAI_SRI(tcb);
 	LOG("resend start...");
 	uint32_t send_start = start_index, send_last = end_index;
 	uint32_t send_next_seq = start_seq, send_next = start_index;
@@ -728,12 +768,12 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 		//FINの再送
 		tcp_send_ctrlseg(tcb->myfin_seq, tcb->recv_next_seq, tcb->recv_window, TH_FIN|TH_ACK, NULL, tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
 		LOG("FIN resend");
-		sig_sem(tcb->sbufsem);
+		TCB_SIG_SRI(tcb);
 		return true;
 	}
 	if(!between_le_le(tcb->send_unack_seq, end_seq, MOD(tcb->send_unack_seq+tcb->send_used_len-1, STREAM_SEND_BUF))){
 		LOG("no resend");
-		sig_sem(tcb->sbufsem);
+		TCB_SIG_SRI(tcb);
 		return false; //送信可能なものはない
 	}
 
@@ -746,7 +786,7 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 
 	if(remaining == 0){
 		LOG("no resend: remaining=0");
-		sig_sem(tcb->sbufsem);
+		TCB_SIG_SRI(tcb);
 		return false;
 	}else{
 		LOG("resend %d byte(s)", remaining);
@@ -785,16 +825,16 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 
 		LOG("sending... remaining=%d, total=%d", remaining, hdrstack_totallen(tcpseg));
 		ip_send(tcpseg, tcb->sock->partner_addr, IPTYPE_TCP);
-		mcled_change(COLOR_LIGHTBLUE);
+		//mcled_change(COLOR_LIGHTBLUE);
 	}
 
-	sig_sem(tcb->sbufsem);
+	TCB_SIG_SRI(tcb);
 
 	return true;
 }
 
 static int tcp_write_to_sendbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TMO timeout){
-	wai_sem(tcb->sbufsem);
+	TCB_WAI_S(tcb);
 	tcb->send_waiting = true;
 	uint32_t remain = len;
 	while(remain > 0){
@@ -805,28 +845,26 @@ static int tcp_write_to_sendbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TM
 			remain--;
 			//LOG("1byte wrote to sendbuf");
 		}else{
-			sig_sem(tcb->sbufsem);
+			TCB_SIG_S(tcb);
 			LOG("send buffer is full.(remain=%d) zzz...", remain);
 			if(tslp_tsk(timeout) == E_TMOUT){
-				wai_sem(tcb->sbufsem);
+				TCB_WAI_S(tcb);
 				tcb->send_waiting = false;
-				sig_sem(tcb->sbufsem);
+				TCB_SIG_S(tcb);
 				return len-remain;
 			}
-			wai_sem(tcb->sbufsem);
+			TCB_WAI_S(tcb);
 			LOG("wake up!");
 		}
 	}
 	tcb->send_waiting = false;
-	sig_sem(tcb->sbufsem);
+	TCB_SIG_S(tcb);
 	//LOG("completed(%d byte(s) wrote.)", len - remain);
 	return len - remain;
 }
 
 static int tcp_read_from_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TMO timeout){
-	LOG("[entered]");
-	wai_sem(tcb->rbufsem);
-	LOG("[start]");
+	TCB_WAI_R(tcb);
 	tcb->recv_waiting = true;
 	uint32_t remain = len;
 	uint32_t head = (tcb->recv_next+tcb->recv_window)%STREAM_RECV_BUF;
@@ -840,23 +878,28 @@ static int tcp_read_from_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, T
 		}
 		//最低1byteは読む
 		if(remain == len){
-			sig_sem(tcb->rbufsem);
+			TCB_SIG_R(tcb);
 			if(tslp_tsk(timeout) == E_TMOUT){
-				wai_sem(tcb->rbufsem);
+				TCB_WAI_R(tcb);
 				tcb->recv_waiting = false;
-				sig_sem(tcb->rbufsem);
+				TCB_SIG_R(tcb);
 				return ETIMEOUT;
 			}
 		}else{
 			tcb->recv_waiting = false;
-			sig_sem(tcb->rbufsem);
+			TCB_SIG_R(tcb);
 			return len - remain;
+		}
+		if(tcb->state != TCP_STATE_ESTABLISHED){
+			TCB_SIG_R(tcb);
+			return ECONNCLOSING;
 		}
 	}
 }
 
 
 static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, uint16_t payload_len, tcp_ctrlblock *tcb){
+	TCB_SIG_SRI(tcb);
 	if(payload_len == 0 && tcb->recv_window == 0){
 		if(ntoh32(thdr->th_seq) != tcb->recv_next_seq)
 			goto cantrecv;
@@ -928,13 +971,12 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 		switch(tcb->state){
 		case TCP_STATE_SYN_RCVD:
 			if(between_le_le(tcb->send_unack_seq, hton32(thdr->th_ack), tcb->send_next_seq)){
-				mcled_change(COLOR_BLUE);
 				tcb->send_window = MIN(ntoh16(thdr->th_win), STREAM_SEND_BUF);
 				tcb->send_wl1 = ntoh32(thdr->th_seq);
 				tcb->send_wl2 = ntoh32(thdr->th_ack);
-				tcb->state = TCP_STATE_ESTABLISHED;
 				tcb->send_unack_seq = hton32(thdr->th_ack);
 				tcb_allocbuf(tcb);
+				tcb->state = TCP_STATE_ESTABLISHED;
 				if(tcb->establish_waiting) wup_tsk(tcb->sock->ownertsk);
 			}else{
 				tcp_send_ctrlseg(ntoh32(thdr->th_ack), tcb->recv_next_seq, 0, TH_RST, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
@@ -994,6 +1036,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 			break;
 		case TCP_STATE_LAST_ACK:
 			if(ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
+				LOG("last_ack...acked");
 				tcb->myfin_state = FIN_ACKED;
 				tcb_reset(tcb);
 				goto exit;
@@ -1012,7 +1055,8 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 		case TCP_STATE_ESTABLISHED:
 		case TCP_STATE_FIN_WAIT_1:
 		case TCP_STATE_FIN_WAIT_2:
-			tcp_write_to_recvbuf(tcb, ((char*)thdr)+thdr->th_off*4, ntoh16(iphdr->ip_len)-iphdr->ip_hl*4-thdr->th_off*4);
+			tcp_write_to_recvbuf(tcb, ((char*)thdr)+thdr->th_off*4, ntoh16(iphdr->ip_len)-iphdr->ip_hl*4-thdr->th_off*4,
+									ntoh32(thdr->th_seq), ntoh32(thdr->th_seq)+payload_len-1);
 			//遅延ACKタイマ開始
 			//tcp_timer_add(tcb->sock, )
 			tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
@@ -1029,14 +1073,18 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 			break;
 		}
 
+		if(ntoh32(thdr->th_seq) != tcb->recv_next_seq)
+			goto exit;
+
 		tcb->recv_next_seq++;
-		LOG("ACK for fin(recv_next_seq=%d)", tcb->recv_next_seq);
 		tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
 
 		switch(tcb->state){
 		case TCP_STATE_SYN_RCVD:
 		case TCP_STATE_ESTABLISHED:
 			tcb->state = TCP_STATE_CLOSE_WAIT;
+			if(tcb->recv_waiting)
+				wup_tsk(tcb->sock->ownertsk);
 			break;
 		case TCP_STATE_FIN_WAIT_1:
 			if(ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
@@ -1067,6 +1115,7 @@ cantrecv:
 	if(!(thdr->th_flags & TH_RST))
 		tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
 exit:
+	TCB_SIG_SRI(tcb);
 	delete flm;
 	return;
 }
@@ -1122,7 +1171,12 @@ void tcp_process(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr){
 	tcb = sockets[s].ctrlblock.tcb;
 	//LOG("sock(%d) type = %d", s,tcb->state);
 
-	switch(tcb->state){
+	TCB_WAI_I(tcb);
+	int state;
+	state = tcb->state;
+	TCB_SIG_I(tcb);
+
+	switch(state){
 	case TCP_STATE_LISTEN:
 		tcp_process_listen(flm, iphdr, thdr, payload_len, tcb, s);
 		break;
@@ -1142,17 +1196,17 @@ exit:
 
 
 int tcp_connect(tcp_ctrlblock *tcb, uint8_t to_addr[], uint16_t to_port, uint16_t my_port, TMO timeout){
+	TCB_WAI_SRI(tcb);
 	switch(tcb->state){
 	case TCP_STATE_CLOSED:
 		break;
 	case TCP_STATE_LISTEN:
-		if(tcb->state == TCP_STATE_LISTEN){
-			tcb->backlog = 0;
-			if(tcb->sockqueue != NULL)
-				delete [] tcb->sockqueue;
-		}
+		tcb->backlog = 0;
+		if(tcb->sockqueue != NULL)
+			delete [] tcb->sockqueue;
 		break;
 	default:
+		TCB_SIG_SRI(tcb);
 		return ECONNEXIST;
 	}
 
@@ -1165,14 +1219,19 @@ int tcp_connect(tcp_ctrlblock *tcb, uint8_t to_addr[], uint16_t to_port, uint16_
 	tcb->state = TCP_STATE_SYN_SENT;
 	tcb->opentype = ACTIVE;
 	tcb->establish_waiting = true;
+	TCB_SIG_SRI(tcb);
 	while(true){
 		if(tslp_tsk(timeout) == E_TMOUT){
+			TCB_WAI_I(tcb);
 			tcb->establish_waiting = false;
+			TCB_SIG_I(tcb);
 			tcp_close(tcb->sock, tcb);
 			return ETIMEOUT;
 		}
 		if(tcb->state == TCP_STATE_ESTABLISHED){
+			TCB_WAI_I(tcb);
 			tcb->establish_waiting = false;
+			TCB_SIG_I(tcb);
 			return 0;
 		}else if(tcb->state == TCP_STATE_CLOSED){
 			return tcb->errno;
@@ -1181,16 +1240,19 @@ int tcp_connect(tcp_ctrlblock *tcb, uint8_t to_addr[], uint16_t to_port, uint16_
 }
 
 int tcp_listen(tcp_ctrlblock *tcb, int backlog){
+	TCB_WAI_I(tcb);
 	switch(tcb->state){
 	case TCP_STATE_CLOSED:
 	case TCP_STATE_LISTEN:
 		break;
 	default:
+		TCB_SIG_I(tcb);
 		return ECONNEXIST;
 	}
+	tcb_allocsockq(tcb, backlog);
 	tcb->state = TCP_STATE_LISTEN;
 	tcb->opentype = PASSIVE;
-	tcb_allocsockq(tcb, backlog);
+	TCB_SIG_I(tcb);
 	return 0;
 }
 
@@ -1198,6 +1260,8 @@ int tcp_accept(int s, tcp_ctrlblock *tcb, uint8_t client_addr[], uint16_t *clien
 	socket_t *sock = &sockets[s];
 	tcp_ctrlblock *pending;
 	int pending_id;
+	//以下pendingとtcbはセマフォを共有していることに注意
+	TCB_WAI_SRI(tcb);
 	switch(tcb->state){
 	case TCP_STATE_LISTEN:
 		tcb->accept_waiting = true;
@@ -1207,6 +1271,7 @@ int tcp_accept(int s, tcp_ctrlblock *tcb, uint8_t client_addr[], uint16_t *clien
 				pending = sockets[pending_id].ctrlblock.tcb;
 				tcb->sockqueue_len--;
 				tcb->sockqueue_head = (tcb->sockqueue_head+1)%tcb->backlog;
+
 				pending->iss = tcp_geninitseq();
 				pending->send_next_seq = pending->iss+1;
 				pending->send_next = 0;
@@ -1215,40 +1280,53 @@ int tcp_accept(int s, tcp_ctrlblock *tcb, uint8_t client_addr[], uint16_t *clien
 
 				hdrstack *opt = make_tcpopt(true, MSS);
 				tcp_send_ctrlseg(pending->iss, pending->recv_next_seq, STREAM_RECV_BUF, TH_SYN|TH_ACK, opt, pending->sock->partner_addr, pending->sock->partner_port, sock->my_port);
-				delete opt;
 				pending->state = TCP_STATE_SYN_RCVD;
+				delete opt;
 
 				tcb->accept_waiting = false;
+				TCB_SIG_SRI(tcb);
 
 				memcpy(client_addr, pending->sock->partner_addr, IP_ADDR_LEN);
 				*client_port = pending->sock->partner_port;
+
 				break;
 			}else{
 				LOG("sockqueue empty(sleep)");
+				TCB_SIG_SRI(tcb);
 				if(tslp_tsk(timeout) == E_TMOUT){
+					TCB_WAI_I(tcb);
 					tcb->accept_waiting = false;
+					TCB_SIG_I(tcb);
 					return ETIMEOUT;
 				}
 			}
+			TCB_WAI_SRI(tcb);
 		}
-
+		TCB_WAI_I(pending);
 		pending->establish_waiting = true;
 		while(true){
 			if(pending->state == TCP_STATE_ESTABLISHED){
 				pending->establish_waiting = false;
+				TCB_SIG_I(pending);
 				return pending_id;
 			}else if(pending->state == TCP_STATE_CLOSED){
+				TCB_SIG_I(pending);
 				return tcb->errno;
 			}
 			LOG("accept: trying...(state:%d)", pending->state);
+			TCB_SIG_I(pending);
 			if(tslp_tsk(timeout) == E_TMOUT){
+				TCB_WAI_I(pending);
 				pending->establish_waiting = false;
+				TCB_SIG_I(pending);
 				tcp_close(pending->sock, pending);
 				return ETIMEOUT;
 			}
+			TCB_WAI_I(pending);
 			//tslp_tsk(1000);
 		}
 	default:
+		TCB_SIG_SRI(tcb);
 		return ENOTLISITENING;
 	}
 }
@@ -1279,7 +1357,10 @@ int tcp_send(tcp_ctrlblock *tcb, char *msg, uint32_t len, TMO timeout){
 }
 
 int tcp_receive(tcp_ctrlblock *tcb, char *buf, uint32_t len, TMO timeout){
-	switch(tcb->state){
+	TCB_WAI_I(tcb);
+	int state = tcb->state;
+	TCB_SIG_I(tcb);
+	switch(state){
 	case TCP_STATE_CLOSED:
 	case TCP_STATE_LISTEN:
 	case TCP_STATE_SYN_SENT:
@@ -1292,10 +1373,13 @@ int tcp_receive(tcp_ctrlblock *tcb, char *buf, uint32_t len, TMO timeout){
 		return tcp_read_from_recvbuf(tcb, buf, len, timeout);
 		break;
 	case TCP_STATE_CLOSE_WAIT:
+		TCB_WAI_R(tcb);
 		if(tcb->recv_window == STREAM_RECV_BUF){
 			//バッファが空の時...これ以上受信されることはない
+			TCB_SIG_R(tcb);
 			return ECONNCLOSING;
 		}
+		TCB_SIG_R(tcb);
 		return tcp_read_from_recvbuf(tcb, buf, len, timeout);
 		break;
 	case TCP_STATE_CLOSING:
@@ -1307,7 +1391,10 @@ int tcp_receive(tcp_ctrlblock *tcb, char *buf, uint32_t len, TMO timeout){
 }
 
 int tcp_close(socket_t *sock, tcp_ctrlblock *tcb){
-	switch(tcb->state){
+	TCB_WAI_I(tcb);
+	int state = tcb->state;
+	TCB_SIG_I(tcb);
+	switch(state){
 	case TCP_STATE_CLOSED:
 		return ECONNNOTEXIST;
 		break;
@@ -1318,16 +1405,20 @@ int tcp_close(socket_t *sock, tcp_ctrlblock *tcb){
 		tcb_reset(tcb);
 		break;
 	case TCP_STATE_SYN_RCVD:
+		TCB_WAI_I(tcb);
 		tcb->myfin_seq = tcb->send_next_seq;
 		tcb->myfin_state = FIN_REQUESTED;
 		tcb->state = TCP_STATE_FIN_WAIT_1;
+		TCB_SIG_I(tcb);
 		wup_tsk(TCP_SEND_TASK);
 		break;
 	case TCP_STATE_ESTABLISHED:
+		TCB_WAI_I(tcb);
 		tcb->myfin_seq = tcb->send_next_seq;
 		tcb->myfin_state = FIN_REQUESTED;
 		LOG("fin requested!");
 		tcb->state = TCP_STATE_FIN_WAIT_1;
+		TCB_SIG_I(tcb);
 		wup_tsk(TCP_SEND_TASK);
 		break;
 	case TCP_STATE_FIN_WAIT_1:
@@ -1335,10 +1426,12 @@ int tcp_close(socket_t *sock, tcp_ctrlblock *tcb){
 		return ECONNCLOSING;
 		break;
 	case TCP_STATE_CLOSE_WAIT:
+		TCB_WAI_SI(tcb);
 		tcb->myfin_seq = tcb->send_next_seq;
 		tcb->send_next_seq++;
 		tcb->send_next = MOD(tcb->send_next+1, STREAM_SEND_BUF);
 		tcb->myfin_state = FIN_REQUESTED;
+		TCB_SIG_SI(tcb);
 		wup_tsk(TCP_SEND_TASK);
 		tcp_timer_add(tcb->sock, 6000, TCP_TIMER_TYPE_FINACK, NULL);
 		break;
@@ -1386,8 +1479,10 @@ void tcp_timer_task(intptr_t exinf) {
 			case TCP_TIMER_TYPE_DELAYACK:
 				{
 					tcp_ctrlblock *tcb = tcptimer->sock->ctrlblock.tcb;
+					TCB_WAI_SR(tcb);
 					tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL,
 											tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
+					TCB_SIG_SR(tcb);
 					if(tcptimer->option!=NULL)
 						delete tcptimer->option;
 					break;
@@ -1416,6 +1511,7 @@ void tcp_send_task(intptr_t exinf){
 		for(int i=0;i<MAX_SOCKET;i++){
 			socket_t *sock = &sockets[i];
 			if(sock->type==SOCK_STREAM && sock->ctrlblock.tcb!=NULL){
+				TCB_WAI_SRI(sock->ctrlblock.tcb);
 				switch(sock->ctrlblock.tcb->state){
 				case TCP_STATE_ESTABLISHED:
 				case TCP_STATE_CLOSE_WAIT:
@@ -1430,6 +1526,7 @@ void tcp_send_task(intptr_t exinf){
 					}
 					break;
 				}
+				TCB_SIG_SRI(sock->ctrlblock.tcb);
 			}
 		}
 		sig_sem(SOCKTBL_SEM);

@@ -15,7 +15,7 @@
 
 socket_t sockets[MAX_SOCKET];
 
-int socket(int type, ID recvsem, ID sendsem){
+int socket(int type, ID recvsem, ID sendsem, ID infosem){
 	ID ownertsk;
 	get_tid(&ownertsk);
 
@@ -36,7 +36,7 @@ int socket(int type, ID recvsem, ID sendsem){
 		sockets[i].ctrlblock.ucb = udp_newcb(recvsem);
 		break;
 	case SOCK_STREAM:
-		sockets[i].ctrlblock.tcb = tcb_new(&sockets[i], recvsem, sendsem);
+		sockets[i].ctrlblock.tcb = tcb_new(&sockets[i], recvsem, sendsem, infosem);
 		break;
 	}
 
