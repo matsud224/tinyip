@@ -15,6 +15,10 @@
 #define STREAM_RECV_BUF 2048
 #define STREAM_SEND_BUF 2048
 
+#define TCP_RESEND_WAIT_MAX 60
+#define TCP_FINWAIT_TIME 6000
+#define TCP_TIMEWAIT_TIME 600000
+
 #define ETHER_SEND_SKIP -1 //設定した回数の送信ごとにフレームをスキップする(負の値で無効)
 #define ETHER_RECV_SKIP -1
 
