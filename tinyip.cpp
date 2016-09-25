@@ -172,21 +172,17 @@ void user_task(intptr_t exinf){
 		lcd.cls();
 		lcd.printf("Connection from\n%s", ipaddr2str(clientaddr));
     }
-
+	/*
     LOG("receive start");
     int recvlen;
     while((recvlen=recv(s2, buf, 256, 0, TIMEOUT_NOTUSE))>0){
 		buf[MIN(recvlen,sizeof(buf)-1)] = '\0';
 		//lcd.cls();
 		lcd.printf("%s", buf);
-		break;
+		//break;
     }
-    lcd.cls(); lcd.printf("Connection closed.");
-    close(s2);
-
-	/*
-    static char msg[] = "The quick brown fox jumps over the lazy dog.";
-	int txt = 1;
+    */
+    int txt = 1;
 	while(true){
 		if(txt == 1){
 			send(s2, txt1, sizeof(txt1), 0, TIMEOUT_NOTUSE);
@@ -197,7 +193,18 @@ void user_task(intptr_t exinf){
 		}
 		wai_sem(USER_BTNSEM);
 	}
+	/*
+    static char msg[] = "HTTP/1.1 200 OK\n\r"
+						"Connection: close\n\r"
+						"Content-type: text/html\n\r"
+						"\n\r"
+						"<html><body><h1>It works!</h1></body></html>";
+
+	send(s2, msg, sizeof(msg), 0, TIMEOUT_NOTUSE);
 	*/
+	lcd.cls(); lcd.printf("Connection closed.");
+    close(s2);
+
 }
 
 
@@ -213,7 +220,4 @@ void cyclic_handler(intptr_t exinf)
 	else
 		redled_on();
 	led_state = !led_state;
-
-	lcd.cls();
-	lcd.printf("%d", find_unusedsocket());
 }

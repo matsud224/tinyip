@@ -15,6 +15,7 @@
 #define MIN(x,y) ((x)<(y)?(x):(y))
 #define MOD(x,y) ((x) % (y))
 
+
 using namespace std;
 
 struct tcp_timer_t;
@@ -43,6 +44,7 @@ struct tcp_ctrlblock{
 	uint32_t send_wl2; //直近のウィンドウ更新に使用されたセグメントの確認番号
 	uint32_t send_used_len; //送信バッファに入っているデータのバイト数
 	uint32_t send_unsent_len; //送信バッファに入っているデータの内、１度も送信されていないバイト数
+	bool send_persisttim_enabled; //持続タイマが起動中か
 	uint32_t iss; //初期送信シーケンス番号
 	char *send_buf;
 	bool send_waiting;
@@ -50,6 +52,7 @@ struct tcp_ctrlblock{
 	uint32_t recv_next_seq; //次のデータ転送で使用できるシーケンス番号
 	uint32_t recv_next;
 	uint16_t recv_window; //受信ウィンドウサイズ
+	uint32_t recv_lastack_seq; //最後に送ったACKのシーケンス番号-1(確認応答済みの最後のシーケンス番号)
 	uint32_t irs; //初期受信シーケンス番号
 	char *recv_buf;
 	bool recv_waiting;
@@ -58,7 +61,8 @@ struct tcp_ctrlblock{
 	int myfin_state;
 #define FIN_NOTREQUESTED 0
 #define FIN_REQUESTED 1
-#define FIN_ACKED 2
+#define FIN_SENT 2
+#define FIN_ACKED 3
 	uint32_t myfin_seq; //自身が送信したFINのシーケンス番号（ACKが来たか確かめる用に覚えとく）
 
 	int state;
@@ -123,7 +127,12 @@ struct tcp_timer_option{
 			uint32_t end_index;
 			uint32_t start_seq;
 			uint32_t end_seq;
+			bool is_fin;
+			bool is_zerownd_probe;
 		} resend;
+		struct{
+			uint32_t seq;
+		} delayack;
 	} option;
 };
 
@@ -135,8 +144,8 @@ struct tcp_timer_t{
 #define TCP_TIMER_TYPE_RESEND 2
 #define TCP_TIMER_TYPE_TIMEWAIT 3
 #define TCP_TIMER_TYPE_DELAYACK 4
-	int remaining; //前に繋がれている要素の秒数の累計＋remainingで発動
-	int sec; //タイマの設定秒数
+	uint32_t remaining; //前に繋がれている要素の秒数の累計＋remainingで発動
+	uint32_t msec; //タイマの設定時間（ミリ秒, TCP_TIMER_UNITの倍数）
 	socket_t *sock;
 	tcp_timer_option *option;
 };
@@ -144,8 +153,8 @@ struct tcp_timer_t{
 tcp_timer_t *tcptimer = NULL;
 
 
-static void tcp_timer_add(socket_t *sock, int sec, int type, tcp_timer_option *opt);
-static void tcp_timer_add_locked(socket_t *sock, int sec, int type, tcp_timer_option *opt);
+static void tcp_timer_add(socket_t *sock, uint32_t sec, int type, tcp_timer_option *opt);
+static void tcp_timer_add_locked(socket_t *sock, uint32_t sec, int type, tcp_timer_option *opt);
 static void tcp_timer_remove_all(socket_t *sock);
 
 static bool between_le_lt(uint32_t a, uint32_t b, uint32_t c);
@@ -166,7 +175,7 @@ static uint16_t get_tcpopt_mss(tcp_hdr *thdr);
 static void tcp_send_ctrlseg(uint32_t seq, uint32_t ack, uint16_t win, uint8_t flags, hdrstack *opt, uint8_t to_addr[], uint16_t to_port, uint16_t my_port);
 static hdrstack *sendbuf_to_hdrstack(tcp_ctrlblock *tcb, uint32_t from, uint32_t len, int *next_from);
 static void tcp_send_from_buf(tcp_ctrlblock *tcb);
-static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index, uint32_t start_seq, uint32_t end_seq);
+static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index, uint32_t start_seq, uint32_t end_seq, bool is_fin, bool is_zwp);
 
 void tcp_process(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr);
 static void tcp_process_closed(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, uint16_t payload_len);
@@ -174,7 +183,7 @@ static void tcp_process_listen(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, u
 static void tcp_process_synsent(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, uint16_t payload_len, tcp_ctrlblock *tcb);
 static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, uint16_t payload_len, tcp_ctrlblock *tcb);
 
-static void tcp_write_to_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len);
+static void tcp_write_to_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, uint32_t start_seq, uint32_t end_seq);
 static int tcp_write_to_sendbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TMO timeout);
 static int tcp_read_from_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, TMO timeout);
 
@@ -187,7 +196,7 @@ int tcp_close(socket_t *sock, tcp_ctrlblock *tcb);
 
 
 
-static void tcp_timer_add(socket_t *sock, int sec, int type, tcp_timer_option *opt){
+static void tcp_timer_add(socket_t *sock, uint32_t sec, int type, tcp_timer_option *opt){
 	wai_sem(TCP_TIMER_SEM);
 
 	tcp_timer_add_locked(sock, sec, type, opt);
@@ -196,15 +205,15 @@ static void tcp_timer_add(socket_t *sock, int sec, int type, tcp_timer_option *o
 	return;
 }
 
-static void tcp_timer_add_locked(socket_t *sock, int sec, int type, tcp_timer_option *opt){
+static void tcp_timer_add_locked(socket_t *sock, uint32_t sec, int type, tcp_timer_option *opt){
 	//already locked.
 	tcp_timer_t *tim = new tcp_timer_t;
 	tim->type = type;
 	tim->sock = sock;
 	tim->option = opt;
-	tim->sec = sec;
+	tim->msec = sec;
 
-	//LOG("new timer: sec=%d, type=%d", sec, type);
+	//LOG("\n-----new timer: sec=%d, type=%d-----", sec, type);
 
 	tcp_timer_t **pp = &tcptimer;
 	while(*pp != NULL){
@@ -219,10 +228,11 @@ static void tcp_timer_add_locked(socket_t *sock, int sec, int type, tcp_timer_op
 	*pp = tim;
 	tim->remaining = sec;
 	pp = &tim->next;
-	while(*pp!=NULL){
+	if(*pp!=NULL){
 		(*pp)->remaining -= sec;
-		pp = &((*pp)->next);
 	}
+
+	//LOG("-------------------------------\n");
 
 	return;
 }
@@ -314,10 +324,12 @@ static void tcb_reset(tcp_ctrlblock *tcb){
 	tcb->send_window = 0;
 	tcb->send_wl1 = 0;
 	tcb->send_wl2 = 0;
+	tcb->send_persisttim_enabled = false;
 
 	tcb->recv_next_seq = 0;
 	tcb->recv_next = 0 ;
 	tcb->recv_window = STREAM_RECV_BUF;
+	tcb->recv_lastack_seq = 0;
 	tcb->recv_holelist = NULL;
 
 	wai_sem(SOCKTBL_SEM);
@@ -325,6 +337,7 @@ static void tcb_reset(tcp_ctrlblock *tcb){
 		socket_t *sock = tcb->sock;
 		TCB_SIG_SRI(tcb);
 		delete tcb;
+		tcp_timer_remove_all(sock);
 		sock->type = SOCK_UNUSED;
 	}else{
 		TCB_SIG_SRI(tcb);
@@ -542,6 +555,7 @@ static void tcp_process_listen(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, u
 		newtcb->recv_next_seq = ntoh32(thdr->th_seq)+1;
 		newtcb->recv_next = 0;
 		newtcb->irs = ntoh32(thdr->th_seq);
+		newtcb->recv_lastack_seq = newtcb->recv_next_seq-1;
 		newtcb->mss = MIN(get_tcpopt_mss(thdr), MSS);
 		if(tcb->accept_waiting) wup_tsk(tcb->sock->ownertsk);
 		sig_sem(SOCKTBL_SEM);
@@ -573,16 +587,19 @@ static void tcp_process_synsent(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, 
 	}
 	if(thdr->th_flags & TH_SYN){
 		tcb->recv_next_seq = ntoh32(thdr->th_seq)+1;
+		tcb->recv_lastack_seq = tcb->recv_next_seq -1;
 		tcb->irs = ntoh32(thdr->th_seq);
 		if(thdr->th_flags & TH_ACK)
 			tcb->send_unack_seq = ntoh32(thdr->th_ack);
 		if(tcb->send_unack_seq == tcb->iss){
 			tcb->state = TCP_STATE_SYN_RCVD;
 			tcp_send_ctrlseg(tcb->iss, tcb->recv_next_seq, 0, TH_SYN|TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
+			tcb->recv_lastack_seq = tcb->recv_next_seq-1;
 		}else{
 			tcb_allocbuf(tcb);
 			tcb->state = TCP_STATE_ESTABLISHED;
 			tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, 0, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
+			tcb->recv_lastack_seq = tcb->recv_next_seq-1;
 			if(tcb->establish_waiting) wup_tsk(tcb->sock->ownertsk);
 		}
 	}
@@ -624,7 +641,7 @@ static hdrstack *sendbuf_to_hdrstack(tcp_ctrlblock *tcb, uint32_t from, uint32_t
 		payload1->size = len;
 		payload1->next = NULL;
 		payload1->buf = &(tcb->send_buf[from]);
-		*next_from = (from+len) % STREAM_SEND_BUF;
+		if(next_from!=NULL) *next_from = (from+len) % STREAM_SEND_BUF;
 		return payload1;
 	}else{
 		//折り返す
@@ -635,7 +652,7 @@ static hdrstack *sendbuf_to_hdrstack(tcp_ctrlblock *tcb, uint32_t from, uint32_t
 		payload2->size = len - payload1->size;
 		payload2->next = NULL;
 		payload2->buf = tcb->send_buf;
-		*next_from = payload2->size;
+		if(next_from!=NULL) *next_from = payload2->size;
 		return payload1;
 	}
 }
@@ -645,35 +662,46 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 	uint32_t sendbuf_tail_seq = tcb->send_unack_seq+tcb->send_used_len-1;
 	uint32_t send_start_seq = tcb->send_next_seq;
 	uint32_t send_last_seq;
+	uint32_t send_start, send_last;
+	uint32_t remaining;
+	bool is_zerownd_probe = false;
 
 	if(tcb->send_unsent_len<=0)
 		goto sendfin;
 
-	if(tcb->send_next_seq == tcb->send_unack_seq+tcb->send_window)
-		goto sendfin;
-
-	if(between_le_le(send_start_seq, tcb->send_unack_seq+tcb->send_window-1, sendbuf_tail_seq))
-		send_last_seq = tcb->send_unack_seq+tcb->send_window-1;
-	else
-		send_last_seq = sendbuf_tail_seq;
-
-	if(!between_le_le(tcb->send_unack_seq, send_start_seq, send_last_seq)){
-		lcd.cls(); lcd.printf("%u / %u / %u /(%u)", tcb->send_unack_seq, send_start_seq, send_last_seq, tcb->iss);
-		goto sendfin; //新たに送信可能なものはない
-	}
-
-	uint32_t remaining;
-
-	if(send_start_seq <= send_last_seq){
-		remaining = send_last_seq - send_start_seq + 1;
+	if(tcb->send_window == 0 && tcb->send_persisttim_enabled == false){
+		is_zerownd_probe = true;
+		tcb->send_persisttim_enabled = true;
+		send_start =  MOD(send_start_seq-(tcb->iss+1), STREAM_SEND_BUF);
+		send_last =  MOD(send_start+1, STREAM_SEND_BUF);
+		remaining = 1;
 	}else{
-		remaining = 0xffffffff - send_last_seq;
-		remaining += send_start_seq + 1;
+		if(tcb->send_next_seq == tcb->send_unack_seq+tcb->send_window)
+			goto sendfin;
+
+		if(between_le_le(send_start_seq, tcb->send_unack_seq+tcb->send_window-1, sendbuf_tail_seq))
+			send_last_seq = tcb->send_unack_seq+tcb->send_window-1;
+		else
+			send_last_seq = sendbuf_tail_seq;
+
+		if(!between_le_le(tcb->send_unack_seq, send_start_seq, send_last_seq)){
+			lcd.cls(); lcd.printf("%u / %u / %u /(%u)", tcb->send_unack_seq, send_start_seq, send_last_seq, tcb->iss);
+			goto sendfin; //新たに送信可能なものはない
+		}
+
+		if(send_start_seq <= send_last_seq){
+			remaining = send_last_seq - send_start_seq + 1;
+		}else{
+			remaining = 0xffffffff - send_last_seq;
+			remaining += send_start_seq + 1;
+		}
+
+		if(remaining <= 0)
+			goto sendfin;
+
+		send_start = MOD(send_start_seq-(tcb->iss+1), STREAM_SEND_BUF);
+		send_last = MOD(send_last_seq-(tcb->iss+1), STREAM_SEND_BUF);
 	}
-
-	if(remaining <= 0)
-		goto sendfin;
-
 
 	tcp_hdr *tcphdr_template;
 	tcphdr_template = new tcp_hdr;
@@ -684,16 +712,6 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 	tcphdr_template->th_sum = 0;
 	tcphdr_template->th_urp = 0;
 	tcphdr_template->th_x2 = 0;
-
-	uint32_t send_start;
-	send_start = MOD(send_start_seq-(tcb->iss+1), STREAM_SEND_BUF);
-	uint32_t send_last;
-	send_last = MOD(send_last_seq-(tcb->iss+1), STREAM_SEND_BUF);
-
-	/*
-	LOG("send ss=%u, sl=%u, s=%u, l=%u, unsent=%u",
-		send_start_seq, send_last_seq, send_start, send_last, tcb->send_unsent_len);
-	*/
 
 	while(tcb->send_unsent_len>0 && remaining > 0){
 		int next_start;
@@ -706,9 +724,11 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 		opt->option.resend.end_index = (tcb->send_next+payload_len-1)%STREAM_SEND_BUF;
 		opt->option.resend.start_seq = tcb->send_next_seq;
 		opt->option.resend.end_seq = tcb->send_next_seq + payload_len -1;
+		opt->option.resend.is_fin = false;
+		opt->option.resend.is_zerownd_probe = is_zerownd_probe;
 
 		remaining -= payload_len;
-		tcb->send_unsent_len-=payload_len;
+		if(!is_zerownd_probe) tcb->send_unsent_len-=payload_len;
 		send_start = next_start;
 
 		hdrstack *tcpseg = new hdrstack(true);
@@ -724,73 +744,87 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 		thdr->th_win = hton16(tcb->recv_window);
 		thdr->th_sum = tcp_checksum_send(tcpseg, IPADDR, tcb->sock->partner_addr);
 
-		tcb->send_next_seq += payload_len;
-		tcb->send_next = (tcb->send_next+payload_len)%STREAM_SEND_BUF;
+		if(!is_zerownd_probe) tcb->send_next_seq += payload_len;
+		if(!is_zerownd_probe) tcb->send_next = (tcb->send_next+payload_len)%STREAM_SEND_BUF;
 
 		//LOG("segment->%d", hdrstack_totallen(tcpseg));
 		//LOG("tcp segment was sent (len=%d)", payload_len);
 		ip_send(tcpseg, tcb->sock->partner_addr, IPTYPE_TCP);
 
-
-		tcp_timer_add(tcb->sock, tcb->rtt, TCP_TIMER_TYPE_RESEND, opt);
+		LOG("resend timer(normal) start");
+		tcp_timer_add(tcb->sock, tcb->rtt*TCP_TIMER_UNIT, TCP_TIMER_TYPE_RESEND, opt);
 	}
 
 sendfin:
 	if(tcb->myfin_state == FIN_REQUESTED){
 		tcp_timer_option *opt;
+
+		tcb->myfin_state = FIN_SENT;
+		tcb->myfin_seq = tcb->send_next_seq;
+		tcb->send_next_seq++;
+		tcb->send_next = (tcb->send_next+1)%STREAM_SEND_BUF;
+
 		opt = new tcp_timer_option;
 		opt->option.resend.start_index = 0;
 		opt->option.resend.end_index = 0;
 		opt->option.resend.start_seq = tcb->myfin_seq;
 		opt->option.resend.end_seq = tcb->myfin_seq;
-
-		tcb->send_next_seq++;
-		tcb->send_next = (tcb->send_next+1)%STREAM_SEND_BUF;
+		opt->option.resend.is_fin = true;
+		opt->option.resend.is_zerownd_probe = false;
 
 		tcp_send_ctrlseg(tcb->myfin_seq, tcb->recv_next_seq, tcb->recv_window, TH_FIN|TH_ACK, NULL, tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
+		tcb->recv_lastack_seq = tcb->recv_next_seq-1;
 
 		if(tcb->state == TCP_STATE_CLOSE_WAIT)
 			tcb->state = TCP_STATE_LAST_ACK;
 
-		tcp_timer_add(tcb->sock, tcb->rtt, TCP_TIMER_TYPE_RESEND, opt);
+		LOG("resend timer(fin) start");
+		tcp_timer_add(tcb->sock, tcb->rtt*TCP_TIMER_UNIT, TCP_TIMER_TYPE_RESEND, opt);
 	}
 
 	return;
 }
 
-static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index, uint32_t start_seq, uint32_t end_seq){
+static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index, uint32_t start_seq, uint32_t end_seq, bool is_fin, bool is_zwp){
 	TCB_WAI_SRI(tcb);
 	//LOG("resend start...");
 	uint32_t send_start = start_index, send_last = end_index;
 	uint32_t send_next_seq = start_seq, send_next = start_index;
 	int remaining;
 
-	if(tcb->myfin_state == FIN_REQUESTED && start_seq == tcb->myfin_seq && end_seq == tcb->myfin_seq){
+	if(is_fin && start_seq == tcb->myfin_seq && end_seq == tcb->myfin_seq){
 		//FINの再送
 		tcp_send_ctrlseg(tcb->myfin_seq, tcb->recv_next_seq, tcb->recv_window, TH_FIN|TH_ACK, NULL, tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
+		tcb->recv_lastack_seq = tcb->recv_next_seq-1;
 		//LOG("FIN resend");
 		TCB_SIG_SRI(tcb);
 		return true;
 	}
-	if(!between_le_le(tcb->send_unack_seq, end_seq, MOD(tcb->send_unack_seq+tcb->send_used_len-1, STREAM_SEND_BUF))){
-		//LOG("no resend");
-		TCB_SIG_SRI(tcb);
-		return false; //送信可能なものはない
-	}
 
-	if(start_seq <= end_seq){
-		remaining = end_seq - start_seq + 1;
+	if(is_zwp){
+		//ゼロウィンドウ・プローブ
+		remaining = 1;
 	}else{
-		remaining = 0xffffffff - end_seq;
-		remaining += start_seq + 1;
-	}
+		if(!between_le_le(tcb->send_unack_seq, end_seq, MOD(tcb->send_unack_seq+tcb->send_used_len-1, STREAM_SEND_BUF))){
+			//LOG("no resend");
+			TCB_SIG_SRI(tcb);
+			return false; //送信可能なものはない
+		}
 
-	if(remaining == 0){
-		//LOG("no resend: remaining=0");
-		TCB_SIG_SRI(tcb);
-		return false;
-	}else{
-		LOG("resend %d byte(s)", remaining);
+		if(start_seq <= end_seq){
+			remaining = end_seq - start_seq + 1;
+		}else{
+			remaining = 0xffffffff - end_seq;
+			remaining += start_seq + 1;
+		}
+
+		if(remaining == 0){
+			//LOG("no resend: remaining=0");
+			TCB_SIG_SRI(tcb);
+			return false;
+		}else{
+			LOG("resend %d byte(s)", remaining);
+		}
 	}
 
 	tcp_hdr *tcphdr_template;
@@ -1003,6 +1037,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 			}else if(ntoh32(thdr->th_ack) != tcb->send_unack_seq){
 				//LOG("ACKSEQ received = %d, tcb = %d", ntoh32(thdr->th_ack), tcb->send_unack_seq);
 				tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
+				tcb->recv_lastack_seq = tcb->recv_next_seq-1;
 				goto exit;
 			}
 			if(between_le_le(tcb->send_unack_seq, ntoh32(thdr->th_ack), tcb->send_next_seq)){
@@ -1014,7 +1049,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 					tcb->send_wl2 = ntoh32(thdr->th_ack);
 				}
 			}
-			if(tcb->state == TCP_STATE_FIN_WAIT_1){
+			if(tcb->state == TCP_STATE_FIN_WAIT_1 && tcb->myfin_state == FIN_SENT){
 				if(ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
 					tcb->state = TCP_STATE_FIN_WAIT_2;
 					tcb->myfin_state = FIN_ACKED;
@@ -1026,7 +1061,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 				}
 			}*/
 			if(tcb->state == TCP_STATE_CLOSING){
-				if(ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
+				if(tcb->myfin_state == FIN_SENT && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
 					tcb->state = TCP_STATE_TIME_WAIT;
 					tcb->myfin_state = FIN_ACKED;
 				}else{
@@ -1035,7 +1070,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 			}
 			break;
 		case TCP_STATE_LAST_ACK:
-			if(ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
+			if(tcb->myfin_state == FIN_SENT && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
 				//LOG("last_ack...acked");
 				tcb->myfin_state = FIN_ACKED;
 				tcb_reset(tcb);
@@ -1058,8 +1093,9 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 			tcp_write_to_recvbuf(tcb, ((char*)thdr)+thdr->th_off*4, ntoh16(iphdr->ip_len)-iphdr->ip_hl*4-thdr->th_off*4,
 									ntoh32(thdr->th_seq), ntoh32(thdr->th_seq)+payload_len-1);
 			//遅延ACKタイマ開始
-			//tcp_timer_add(tcb->sock, )
-			tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
+			tcp_timer_option *opt = new tcp_timer_option;
+			opt->option.delayack.seq = tcb->recv_lastack_seq;
+			tcp_timer_add(tcb->sock, TCP_DELAYACK_TIME, TCP_TIMER_TYPE_DELAYACK, opt);
 			break;
 		}
 	}
@@ -1078,6 +1114,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 
 		tcb->recv_next_seq++;
 		tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
+		tcb->recv_lastack_seq = tcb->recv_next_seq-1;
 
 		switch(tcb->state){
 		case TCP_STATE_SYN_RCVD:
@@ -1087,7 +1124,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 				wup_tsk(tcb->sock->ownertsk);
 			break;
 		case TCP_STATE_FIN_WAIT_1:
-			if(ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
+			if(tcb->myfin_state == FIN_SENT && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
 				tcb->myfin_state = FIN_ACKED;
 				tcb->state = TCP_STATE_TIME_WAIT;
 				tcp_timer_remove_all(tcb->sock);
@@ -1112,9 +1149,11 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 
 cantrecv:
 	//ACK送信
-	if(!(thdr->th_flags & TH_RST))
+	if(!(thdr->th_flags & TH_RST)){
 		tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport));
 	//LOG("Can't receive (port %d/%d)", ntoh16(thdr->th_sport), tcb->sock->partner_port);
+		tcb->recv_lastack_seq = tcb->recv_next_seq-1;
+	}
 exit:
 	TCB_SIG_SRI(tcb);
 	delete flm;
@@ -1284,6 +1323,7 @@ int tcp_accept(int s, tcp_ctrlblock *tcb, uint8_t client_addr[], uint16_t *clien
 
 				hdrstack *opt = make_tcpopt(true, MSS);
 				tcp_send_ctrlseg(pending->iss, pending->recv_next_seq, STREAM_RECV_BUF, TH_SYN|TH_ACK, opt, pending->sock->partner_addr, pending->sock->partner_port, sock->my_port);
+				tcb->recv_lastack_seq = tcb->recv_next_seq-1;
 				pending->state = TCP_STATE_SYN_RCVD;
 				delete opt;
 
@@ -1411,7 +1451,6 @@ int tcp_close(socket_t *sock, tcp_ctrlblock *tcb){
 		break;
 	case TCP_STATE_SYN_RCVD:
 		TCB_WAI_I(tcb);
-		tcb->myfin_seq = tcb->send_next_seq;
 		tcb->myfin_state = FIN_REQUESTED;
 		tcb->state = TCP_STATE_FIN_WAIT_1;
 		TCB_SIG_I(tcb);
@@ -1419,7 +1458,6 @@ int tcp_close(socket_t *sock, tcp_ctrlblock *tcb){
 		break;
 	case TCP_STATE_ESTABLISHED:
 		TCB_WAI_I(tcb);
-		tcb->myfin_seq = tcb->send_next_seq;
 		tcb->myfin_state = FIN_REQUESTED;
 		//LOG("fin requested!");
 		tcb->state = TCP_STATE_FIN_WAIT_1;
@@ -1432,9 +1470,6 @@ int tcp_close(socket_t *sock, tcp_ctrlblock *tcb){
 		break;
 	case TCP_STATE_CLOSE_WAIT:
 		TCB_WAI_SI(tcb);
-		tcb->myfin_seq = tcb->send_next_seq;
-		tcb->send_next_seq++;
-		tcb->send_next = MOD(tcb->send_next+1, STREAM_SEND_BUF);
 		tcb->myfin_state = FIN_REQUESTED;
 		TCB_SIG_SI(tcb);
 		wup_tsk(TCP_SEND_TASK);
@@ -1453,10 +1488,10 @@ void tcp_timer_task(intptr_t exinf) {
 	while(true){
 		wai_sem(TCP_TIMER_SEM);
 		if(tcptimer!=NULL){
-			tcptimer->remaining--;
-			LOG("[timer] %d", tcptimer->remaining);
+			tcptimer->remaining -= TCP_TIMER_UNIT;
+			LOG("[timer] %u", tcptimer->remaining);
 		}
-		while(tcptimer!=NULL && tcptimer->remaining<=0){
+		while(tcptimer!=NULL && tcptimer->remaining==0){
 			LOG("[timer] timeout! type:%d", tcptimer->type);
 			switch(tcptimer->type){
 			case TCP_TIMER_REMOVED:
@@ -1472,16 +1507,33 @@ void tcp_timer_task(intptr_t exinf) {
 				if(tcp_resend_from_buf(tcptimer->sock->ctrlblock.tcb, tcptimer->option->option.resend.start_index,
 														 tcptimer->option->option.resend.end_index,
 														 tcptimer->option->option.resend.start_seq,
-														 tcptimer->option->option.resend.end_seq)){
-					if(tcptimer->sec > TCP_RESEND_WAIT_MAX){
+														 tcptimer->option->option.resend.end_seq,
+														 tcptimer->option->option.resend.is_fin,
+														 tcptimer->option->option.resend.is_zerownd_probe)){
+					if(tcptimer->option->option.resend.is_zerownd_probe){
+						//ゼロウィンドウ・プローブ（持続タイマ）
 						tcp_ctrlblock *tcb = tcptimer->sock->ctrlblock.tcb;
-						TCB_WAI_SR(tcb);
-						tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_RST, NULL,
-											tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
-						TCB_SIG_SR(tcb);
-						tcb_reset(tcb);
+						TCB_WAI_S(tcb);
+						if(tcb->send_window == 0){
+							LOG("persist timer restart");
+							tcp_timer_add_locked(tcptimer->sock, MIN(tcptimer->msec*2, TCP_PERSIST_WAIT_MAX), TCP_TIMER_TYPE_RESEND, tcptimer->option);
+						}else{
+							tcb->send_persisttim_enabled = false;
+						}
+						TCB_SIG_S(tcb);
 					}else{
-						tcp_timer_add_locked(tcptimer->sock, tcptimer->sec*2, TCP_TIMER_TYPE_RESEND, tcptimer->option);
+						//通常の再送
+						if(tcptimer->msec > TCP_RESEND_WAIT_MAX){
+							tcp_ctrlblock *tcb = tcptimer->sock->ctrlblock.tcb;
+							TCB_WAI_SR(tcb);
+							tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_RST, NULL,
+												tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
+							TCB_SIG_SR(tcb);
+							tcb_reset(tcb);
+						}else{
+							LOG("resend timer restart");
+							tcp_timer_add_locked(tcptimer->sock, tcptimer->msec*2, TCP_TIMER_TYPE_RESEND, tcptimer->option);
+						}
 					}
 				}
 				break;
@@ -1494,8 +1546,13 @@ void tcp_timer_task(intptr_t exinf) {
 				{
 					tcp_ctrlblock *tcb = tcptimer->sock->ctrlblock.tcb;
 					TCB_WAI_SR(tcb);
-					tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL,
+					//LOG("delay ack...%u/%u/%u",tcb->recv_lastack_seq, tcptimer->option->option.delayack.seq,tcb->recv_next_seq);
+					if(tcb->recv_lastack_seq == tcptimer->option->option.delayack.seq){
+						//LOG("[[delay ack]]");
+						tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL,
 											tcb->sock->partner_addr, tcb->sock->partner_port, tcb->sock->my_port);
+						tcb->recv_lastack_seq = tcb->recv_next_seq-1;
+					}
 					TCB_SIG_SR(tcb);
 					if(tcptimer->option!=NULL)
 						delete tcptimer->option;
