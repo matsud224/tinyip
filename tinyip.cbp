@@ -55,6 +55,7 @@
 			<Option target="clean" />
 		</Unit>
 		<Unit filename="envdep.h" />
+		<Unit filename="errnolist.h" />
 		<Unit filename="ethernet.cpp">
 			<Option compilerVar="CC" />
 			<Option target="all" />
@@ -68,6 +69,8 @@
 			<Option target="clean" />
 			<Option target="depend" />
 		</Unit>
+		<Unit filename="ftpd.cpp" />
+		<Unit filename="httpd.cpp" />
 		<Unit filename="icmp.cpp">
 			<Option compilerVar="CC" />
 			<Option target="all" />

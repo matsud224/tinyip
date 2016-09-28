@@ -11,69 +11,59 @@
 #include "icmp.h"
 #include "udp.h"
 #include "tcp.h"
+#include "errnolist.h"
 
 
 socket_t sockets[MAX_SOCKET];
 
-int socket(int type, ID recvsem, ID sendsem, ID infosem){
+int socket(int type, ID sem){
 	ID ownertsk;
 	get_tid(&ownertsk);
 
 	wai_sem(SOCKTBL_SEM);
-	int i = find_unusedsocket();
-	if(i == -1){
+	int i;
+	for(i=0;i<MAX_SOCKET;i++){
+		if(sockets[i].type==SOCK_UNUSED){
+			break;
+		}
+	}
+	if(i == MAX_SOCKET){
 		sig_sem(SOCKTBL_SEM);
 		return -1;
 	}
 
-	sockets[i].type=type;
 	sockets[i].ownertsk = ownertsk;
-	sockets[i].my_port=0;
-	sockets[i].partner_port = 0;
-	memset(sockets[i].partner_addr, 0, IP_ADDR_LEN);
-	switch(sockets[i].type){
+	sockets[i].addr.my_port=0;
+	sockets[i].addr.partner_port = 0;
+	memset(sockets[i].addr.partner_addr, 0, IP_ADDR_LEN);
+	switch(type){
 	case SOCK_DGRAM:
-		sockets[i].ctrlblock.ucb = udp_newcb(recvsem);
+		sockets[i].ctrlblock.ucb = ucb_new(ownertsk, sem);
 		break;
 	case SOCK_STREAM:
-		sockets[i].ctrlblock.tcb = tcb_new(&sockets[i], recvsem, sendsem, infosem);
+		sockets[i].ctrlblock.tcb = NULL;
 		break;
 	}
+
+	sockets[i].type=type;
 
 	sig_sem(SOCKTBL_SEM);
 	return i;
 }
 
-int find_unusedsocket(){
-	//already locked.
-	for(int i=0;i<MAX_SOCKET;i++){
-		if(sockets[i].type==SOCK_UNUSED){
-			sig_sem(SOCKTBL_SEM);
-			return i;
-		}
-	}
-	return -1;
-}
-
-void copy_socket(int src, int dest){
-	//already locked.
-	sockets[dest] = sockets[src];
-}
-
 bool is_usedport(uint16_t port){
-	wai_sem(SOCKTBL_SEM);
+	//already locked.
 	for(int i=0;i<MAX_SOCKET;i++){
-		if(sockets[i].type!=SOCK_UNUSED && sockets[i].my_port==port){
-			sig_sem(SOCKTBL_SEM);
+		if(sockets[i].type!=SOCK_UNUSED && sockets[i].addr.my_port==port){
 			return true;
 		}
 	}
-	sig_sem(SOCKTBL_SEM);
 	return false;
 }
 
-int find_unusedport(){
-	for(int p=49152;p<65535;p++){
+uint16_t find_unusedport(){
+	//already locked.
+	for(uint16_t p=49152;p<65535;p++){
 		if(!is_usedport(p))
 			return p;
 	}
@@ -81,15 +71,23 @@ int find_unusedport(){
 }
 
 int bind(int s, uint16_t my_port){
-	if(my_port!=0 && is_usedport(my_port))
+	wai_sem(PORTNO_SEM);
+	if(my_port!=0 && is_usedport(my_port)){
 		return -1; //使用中ポート
-	if(my_port==0)
-		if((my_port=find_unusedport()) == 0)
-			return -1;
+	}
+	if(my_port==0 && (my_port=find_unusedport()) == 0){
+		return -1;
+	}
+	sig_sem(PORTNO_SEM);
+
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
+		wai_sem(UDP_SEM);
+		sockets[s].addr.my_port=my_port;
+		sig_sem(UDP_SEM);
+		break;
 	case SOCK_STREAM:
-		sockets[s].my_port=my_port;
+		sockets[s].addr.my_port=my_port;
 		break;
 	default:
 		return -1;
@@ -98,58 +96,63 @@ int bind(int s, uint16_t my_port){
 }
 
 int close(int s){
-	wai_sem(SOCKTBL_SEM);
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
+		wai_sem(UDP_SEM);
 		udp_disposecb(sockets[s].ctrlblock.ucb);
 		sockets[s].type=SOCK_UNUSED;
+		sig_sem(UDP_SEM);
 		break;
 	case SOCK_STREAM:
-		tcp_close(&sockets[s], sockets[s].ctrlblock.tcb);
+		tcp_close(sockets[s].ctrlblock.tcb);
+		sockets[s].ctrlblock.tcb = NULL;
+		sockets[s].type = SOCK_UNUSED;
 		break;
 	}
-	sig_sem(SOCKTBL_SEM);
 	return 0;
 }
 
 int sendto(int s, const char *msg, uint32_t len, int flags, uint8_t to_addr[], uint16_t to_port){
-	if(sockets[s].my_port==0)
-		if((sockets[s].my_port=find_unusedport()) == 0)
-			return EAGAIN;
+	if(bind(s, 0) == 0){
+		return EAGAIN;
+	}
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
-		return udp_sendto(msg, len, flags, to_addr, to_port, sockets[s].my_port);
-	case SOCK_STREAM:
-		return EBADF;
+		return udp_sendto(msg, len, flags, to_addr, to_port, sockets[s].addr.my_port);
 	default:
 		return EBADF;
 	}
 }
 
 int recvfrom(int s, char *buf, uint32_t len, int flags, uint8_t from_addr[], uint16_t *from_port, TMO timeout){
-	if(sockets[s].my_port==0)
-		if((sockets[s].my_port=find_unusedport()) == 0)
-			return EAGAIN;
+	if(bind(s, 0) == 0){
+		return EAGAIN;
+	}
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
 		return udp_recvfrom(sockets[s].ctrlblock.ucb, buf, len, flags, from_addr, from_port, timeout);
-	case SOCK_STREAM:
-		return EBADF;
 	default:
 		return EBADF;
 	}
 }
 
 int connect(int s, uint8_t to_addr[], uint16_t to_port, TMO timeout){
+	if(bind(s, 0) == 0){
+		return EAGAIN;
+	}
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
-		memcpy(sockets[s].partner_addr, to_addr, IP_ADDR_LEN);
-		sockets[s].partner_port = to_port;
+		memcpy(sockets[s].addr.partner_addr, to_addr, IP_ADDR_LEN);
+		sockets[s].addr.partner_port = to_port;
 		return 0;
 	case SOCK_STREAM:
-		memcpy(sockets[s].partner_addr, to_addr, IP_ADDR_LEN);
-		sockets[s].partner_port = to_port;
-		return tcp_connect(sockets[s].ctrlblock.tcb, to_addr, to_port, sockets[s].my_port, timeout);
+		if(sockets[s].ctrlblock.tcb == NULL){
+			sockets[s].ctrlblock.tcb = tcb_new();
+		}
+		tcb_setaddr_and_owner(sockets[s].ctrlblock.tcb, &(sockets[s].addr), sockets[s].ownertsk);
+		memcpy(sockets[s].addr.partner_addr, to_addr, IP_ADDR_LEN);
+		sockets[s].addr.partner_port = to_port;
+		return tcp_connect(sockets[s].ctrlblock.tcb, timeout);
 	default:
 		return EBADF;
 	}
@@ -158,25 +161,68 @@ int connect(int s, uint8_t to_addr[], uint16_t to_port, TMO timeout){
 int listen(int s, int backlog){
 	switch(sockets[s].type){
 	case SOCK_STREAM:
+		if(sockets[s].ctrlblock.tcb == NULL){
+			sockets[s].ctrlblock.tcb = tcb_new();
+		}
+		tcb_setaddr_and_owner(sockets[s].ctrlblock.tcb, &(sockets[s].addr), sockets[s].ownertsk);
 		return tcp_listen(sockets[s].ctrlblock.tcb, backlog);
 	default:
 		return EBADF;
 	}
 }
 
+static int accepted_tcb_to_socket(tcp_ctrlblock *listening_tcb, uint8_t client_addr[], uint16_t *client_port, TMO timeout){
+	ID ownertsk;
+	get_tid(&ownertsk);
+
+	wai_sem(SOCKTBL_SEM);
+	int i;
+	for(i=0;i<MAX_SOCKET;i++){
+		if(sockets[i].type==SOCK_UNUSED){
+			break;
+		}
+	}
+	if(i == MAX_SOCKET){
+		sig_sem(SOCKTBL_SEM);
+		return -1;
+	}
+
+
+	tcp_ctrlblock *accepted = tcp_accept(listening_tcb, client_addr, client_port, timeout);
+
+	if(accepted == NULL){
+		sig_sem(SOCKTBL_SEM);
+		return -1;
+	}
+	sockets[i].ctrlblock.tcb = accepted;
+	sockets[i].ownertsk = tcb_getowner(accepted);
+	sockets[i].addr = *tcb_getaddr(accepted);
+
+
+	sockets[i].type=SOCK_STREAM;
+
+	sig_sem(SOCKTBL_SEM);
+	return i;
+}
+
 int accept(int s, uint8_t client_addr[], uint16_t *client_port, TMO timeout){
+	int result;
 	switch(sockets[s].type){
 	case SOCK_STREAM:
-		return tcp_accept(s, sockets[s].ctrlblock.tcb, client_addr, client_port, timeout);
+		result = accepted_tcb_to_socket(sockets[s].ctrlblock.tcb, client_addr, client_port, timeout);
+		if(result < 0)
+			return EAGAIN;
+		else
+			return result;
 	default:
 		return EBADF;
 	}
 }
 
-int send(int s, char *msg, uint32_t len, int flags, TMO timeout){
+int send(int s, const char *msg, uint32_t len, int flags, TMO timeout){
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
-		return udp_sendto(msg, len, flags, sockets[s].partner_addr, sockets[s].partner_port, sockets[s].my_port);
+		return udp_sendto(msg, len, flags, sockets[s].addr.partner_addr, sockets[s].addr.partner_port, sockets[s].addr.my_port);
 	case SOCK_STREAM:
 		return tcp_send(sockets[s].ctrlblock.tcb, msg, len, timeout);
 	default:
@@ -187,7 +233,7 @@ int send(int s, char *msg, uint32_t len, int flags, TMO timeout){
 int recv(int s, char *buf, uint32_t len, int flags, TMO timeout){
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
-		return udp_recvfrom(sockets[s].ctrlblock.ucb, buf, len, flags, sockets[s].partner_addr, &(sockets[s].partner_port), timeout);
+		return udp_recvfrom(sockets[s].ctrlblock.ucb, buf, len, flags, sockets[s].addr.partner_addr, &(sockets[s].addr.partner_port), timeout);
 	case SOCK_STREAM:
 		return tcp_receive(sockets[s].ctrlblock.tcb, buf, len, timeout);
 	default:

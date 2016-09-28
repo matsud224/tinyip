@@ -10,6 +10,7 @@
 #include "netlib.h"
 #include "util.h"
 #include "netconf.h"
+#include "errnolist.h"
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
@@ -19,6 +20,10 @@ struct udp_ctrlblock{
 	ether_flame **recv_queue; //「ether_flameのポインタ」の配列
 	//hdrstack **send_queue;
 	bool recv_waiting;
+
+
+	ID ownertsk;
+    transport_addr addr;
 
 	~udp_ctrlblock(){
 		delete [] recv_queue;
@@ -54,16 +59,16 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 		goto exit;
 	}
 
+	wai_sem(UDP_SEM);
 
 	int s;
 	socket_t *sock;
-	wai_sem(SOCKTBL_SEM);
 	for(s=0;s<MAX_SOCKET;s++){
 		sock = &sockets[s];
-		if(sock->type==SOCK_DGRAM && sock->my_port==ntoh16(uhdr->uh_dport))
+		if(sock->type==SOCK_DGRAM && sock->addr.my_port==ntoh16(uhdr->uh_dport))
 			break;
 	}
-	sig_sem(SOCKTBL_SEM);
+
 	if(s==MAX_SOCKET){
 		goto exit;
 	}
@@ -85,8 +90,10 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 	if(ucb->recv_waiting) wup_tsk(sock->ownertsk);
 	sig_sem(ucb->rqueuesem);
 
+	sig_sem(UDP_SEM);
 	return;
 exit:
+	sig_sem(UDP_SEM);
 	delete flm;
 	return;
 }
@@ -165,8 +172,9 @@ int32_t udp_recvfrom(udp_ctrlblock *ucb, char *buf, uint32_t len, int flags, uin
 	}
 }
 
-udp_ctrlblock *udp_newcb(ID recvsem){
+udp_ctrlblock *ucb_new(ID owner, ID recvsem){
 	udp_ctrlblock *ucb = new udp_ctrlblock;
+	ucb->ownertsk = owner;
 	ucb->rqueuesem = recvsem;
 	ucb->recv_queue=new ether_flame*[DGRAM_RECV_QUEUE];
 
@@ -174,6 +182,10 @@ udp_ctrlblock *udp_newcb(ID recvsem){
 	ucb->recv_waiting=false;
 
 	return ucb;
+}
+
+void ucb_setaddr(udp_ctrlblock *ucb, transport_addr *addr){
+	ucb->addr = *addr;
 }
 
 void udp_disposecb(udp_ctrlblock *ucb){

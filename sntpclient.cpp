@@ -40,7 +40,7 @@ int sntp_gettime(uint8_t ipaddr[], timestamp *ts, ID recvsem, TMO timeout){
 	sntpmsg.mode = SNTP_MODE_CLIENT;
 	//自身が時計を持っていないから、送信時刻は記入しない
 
-	int sock = socket(SOCK_DGRAM, recvsem, NULL, NULL); //TCPは使わないので、セマフォの指定を省略
+	int sock = socket(SOCK_DGRAM, recvsem); //TCPは使わないので、セマフォの指定を省略
 	//bind(sock, 123);
 	int err;
 	if((err = sendto(sock, (char*)&sntpmsg, sizeof(sntpmsg), 0, ipaddr, 123)) < 0){

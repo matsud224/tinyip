@@ -60,6 +60,13 @@
 #define TCP_SEND_TASK_STACK_SIZE 1024
 #endif  /* TCP_SEND_TASK_STACK_SIZE */
 
+#ifndef HTTPD_TASK_PRI
+#define HTTPD_TASK_PRI  5
+#endif /* HTTPD_TASK_PRI */
+
+#ifndef HTTPD_STACK_SIZE
+#define HTTPD_TASK_STACK_SIZE 1024
+#endif  /* HTTPD_TASK_STACK_SIZE */
 
 /*
  *  Definition of memory size for RTOS
@@ -91,7 +98,8 @@ extern void timeout_10sec_cyc(intptr_t exinf);
 extern void tcp_timer_task(intptr_t exinf);
 extern void tcp_timer_cyc(intptr_t exinf);
 extern void tcp_send_task(intptr_t exinf);
-extern void tcp_send_cyc(intptr_t exinf);
+extern void tcp_send_cyc(intptr_t exinf);]
+extern void httpd_task(intptr_t exinf);
 
 #ifdef __cplusplus
 }
