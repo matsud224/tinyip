@@ -207,6 +207,7 @@ static int accepted_tcb_to_socket(tcp_ctrlblock *listening_tcb, uint8_t client_a
 
 int accept(int s, uint8_t client_addr[], uint16_t *client_port, TMO timeout){
 	int result;
+	LOG("---ACCEPT---");
 	switch(sockets[s].type){
 	case SOCK_STREAM:
 		result = accepted_tcb_to_socket(sockets[s].ctrlblock.tcb, client_addr, client_port, timeout);

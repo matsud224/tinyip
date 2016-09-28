@@ -51,25 +51,28 @@ static int http_respond(int s, const char *st_code_str, const char *cont_str, co
 	static char buf[HTTP_BUF_LEN];
 	//sprintf使うと改行コード改変される
 	static char httpver[] = "HTTP/1.1 ";
-	static char hdr1[] = "\n\rConnection: close\n\r"
+	static char hdr1[] = "\r\nConnection: close\r\n"
 						 "Content-type: ";
-	mcled_change(COLOR_BLUE);
-	cont_str = get_content_type("png");
+	//mcled_change(COLOR_BLUE);
 	send(s, httpver, sizeof(httpver)-1, 0, TIMEOUT_NOTUSE);
 	send(s, st_code_str, strlen(st_code_str), 0, TIMEOUT_NOTUSE);
 	send(s, hdr1, sizeof(hdr1)-1, 0, TIMEOUT_NOTUSE);
 	send(s, cont_str, strlen(cont_str), 0, TIMEOUT_NOTUSE);
-	send(s, "\n\r\n\r", 4, 0, TIMEOUT_NOTUSE);
-	mcled_change(COLOR_GREEN);
+	send(s, "\r\n\r\n", 4, 0, TIMEOUT_NOTUSE);
+	//mcled_change(COLOR_GREEN);
 	FILE *fp = fopen(path, "rb");
 	if(fp == NULL){
 		return -1;
 	}else{
 		int readlen;
 		while((readlen = fread(buf, 1, HTTP_BUF_LEN, fp)) > 0)
-			send(s, buf, readlen, 0, TIMEOUT_NOTUSE);
+			if(send(s, buf, readlen, 0, TIMEOUT_NOTUSE)<0){
+				LOG("send error");
+				break;
+			}
 	}
 	fclose(fp);
+	LOG("--sent--");
 
 	return 0;
 }
@@ -83,10 +86,9 @@ void httpd_task(intptr_t exinf){
     static char buf[512];
     static char path_buf[256];
     int s = socket(SOCK_STREAM, NULL);
-    uint16_t my_port = 80;
     bind(s, 80);
 
-    if(listen(s, 3)<0){
+    if(listen(s, 10)<0){
 		LOG("httpd: listen() failed.");
 		return;
     }
@@ -100,10 +102,6 @@ void httpd_task(intptr_t exinf){
 		}
 
 		if(recv(s2, buf, sizeof(buf), 0, TIMEOUT_NOTUSE)>0){
-			sprintf(path_buf, "%s%s", DOCUMENT_ROOT, "hanabi.png");
-			http_respond(s2, "200 OK", get_content_type("png"), path_buf);
-			close(s2);
-			continue;
 			char *method = strtok(buf, " ");
 			if(strncmp(method, "GET", 3) == 0){
 				char *path = strtok(NULL, " ");
@@ -126,6 +124,5 @@ void httpd_task(intptr_t exinf){
 			}
 		}
 		close(s2);
-		return;
     }
 }

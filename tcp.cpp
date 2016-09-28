@@ -568,19 +568,22 @@ static void tcp_process_listen(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, u
 		//tcbqueueが一杯になり一切の接続を受け付けられなくなる
 		//そのため、タイムアウトなどで対処すべき（現状はできていない）
 		tcp_ctrlblock *newtcb;
-		LOG("[SYN received]");
+		//LOG("[SYN received]");
 		if(tcb->backlog > tcb->tcbqueue_len){
 			//空き
 			newtcb = tcb_new();
 			tcb->tcbqueue[(tcb->tcbqueue_head+tcb->tcbqueue_len)%tcb->backlog] = newtcb;
 			tcb_setaddr_and_owner(newtcb, &(tcb->addr), tcb->ownertsk);
 			tcb->tcbqueue_len++;
-			LOG("Connection requested(from port %d)");
+			//LOG("Connection requested(from port %u)", ntoh16(thdr->th_sport));
 		}else{
-			LOG("Error: tcbqueue is full.");
+			//if(tcb->backlog>0) LOG("Error: tcbqueue is full.");
 			goto exit;
 		}
         memcpy(newtcb->addr.partner_addr, iphdr->ip_src, IP_ADDR_LEN);
+
+        newtcb->state = TCP_STATE_LISTEN;
+
         newtcb->addr.partner_port = ntoh16(thdr->th_sport);
 		newtcb->recv_next_seq = ntoh32(thdr->th_seq)+1;
 		newtcb->recv_next = 0;
@@ -894,6 +897,10 @@ static int tcp_write_to_sendbuf(tcp_ctrlblock *tcb, const char *data, uint32_t l
 	tcb->send_waiting = true;
 	uint32_t remain = len;
 	while(remain > 0){
+		//他の状態の場合も考えないといけない気がするが、とりあえずリセットされた時の対処
+		if(tcb->state == TCP_STATE_CLOSED || tcb->send_buf==NULL){
+			return ECONNRESET;
+		}
 		if(tcb->send_used_len < tcb->send_window){
 			tcb->send_buf[(tcb->send_unack+tcb->send_used_len)%STREAM_SEND_BUF] = *data++;
 			tcb->send_used_len++;
@@ -1370,6 +1377,8 @@ tcp_ctrlblock *tcp_accept(tcp_ctrlblock *tcb, uint8_t client_addr[], uint16_t *c
 	SEMINFO("accept get");
 	tcp_ctrlblock *pending;
 
+
+
 	switch(tcb->state){
 	case TCP_STATE_LISTEN:
 retry:
@@ -1396,6 +1405,8 @@ retry:
 
 				memcpy(client_addr, pending->addr.partner_addr, IP_ADDR_LEN);
 				*client_port = pending->addr.partner_port;
+
+				//tcblist_add(pending);
 
 				break;
 			}else{
@@ -1526,6 +1537,7 @@ int tcp_close(tcp_ctrlblock *tcb){
 	tcb->is_userclosed = true;
 	switch(tcb->state){
 	case TCP_STATE_CLOSED:
+		tcb_reset(tcb);
 		result = ECONNNOTEXIST;
 		break;
 	case TCP_STATE_LISTEN:

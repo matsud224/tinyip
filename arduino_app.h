@@ -13,7 +13,7 @@
  *  confguration file (.cfg).
  */
 #ifndef MAIN_TASK_PRI
-#define MAIN_TASK_PRI  4
+#define MAIN_TASK_PRI  5
 #endif /* MAIN_TASK_PRI */
 
 #ifndef MAIN_TASK_STACK_SIZE
@@ -29,7 +29,7 @@
 #endif  /* USER_TASK_STACK_SIZE */
 
 #ifndef ETHERRECV_TASK_PRI
-#define ETHERRECV_TASK_PRI  8
+#define ETHERRECV_TASK_PRI  5
 #endif /* ETHERRECV_TASK_PRI */
 
 #ifndef ETHERRECV_TASK_STACK_SIZE
@@ -37,7 +37,7 @@
 #endif  /* ETHERRECV_TASK_STACK_SIZE */
 
 #ifndef TIMEOUT_10SEC_TASK_PRI
-#define TIMEOUT_10SEC_TASK_PRI  7
+#define TIMEOUT_10SEC_TASK_PRI  5
 #endif /* TIMEOUT_10SEC_TASK_PRI */
 
 #ifndef TIMEOUT_10SEC_TASK_STACK_SIZE
@@ -65,7 +65,7 @@
 #endif /* HTTPD_TASK_PRI */
 
 #ifndef HTTPD_STACK_SIZE
-#define HTTPD_TASK_STACK_SIZE 1024
+#define HTTPD_TASK_STACK_SIZE 4096
 #endif  /* HTTPD_TASK_STACK_SIZE */
 
 /*
@@ -98,7 +98,7 @@ extern void timeout_10sec_cyc(intptr_t exinf);
 extern void tcp_timer_task(intptr_t exinf);
 extern void tcp_timer_cyc(intptr_t exinf);
 extern void tcp_send_task(intptr_t exinf);
-extern void tcp_send_cyc(intptr_t exinf);]
+extern void tcp_send_cyc(intptr_t exinf);
 extern void httpd_task(intptr_t exinf);
 
 #ifdef __cplusplus

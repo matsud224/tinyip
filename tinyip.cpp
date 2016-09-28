@@ -17,6 +17,8 @@
 #include "netconf.h"
 #include "netlib.h"
 #include "sntpclient.h"
+#include "ethernet.h"
+#include "util.h"
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
