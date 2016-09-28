@@ -21,12 +21,15 @@ TOPPERS/ASP Kernelを載せたGR-PEACH（マイコンボード）上で動くプ
   - ソケット風APIで送受信
 * SNTPクライアント
   - UDP通信のテストとして書きました
-  
+* TCP
+  - 再送
+  - スライディング・ウィンドウ
+  - 遅延ACK
+* Webサーバ
+  - GETを受けたらデータを送るだけの、最低限のもの
+
 Ethernetコントローラの制御には、mbedのEthernetコントローラドライバを利用しています。
 
-
-# 実装予定
-* TCP
 
 # コンパイル
 以下のGR-PEACH版TOPPERS/ASP Kernel(mbed/Arduinoライブラリ付属)をダウンロードします。
@@ -47,6 +50,8 @@ make depend; make
 * 詳解TCP/IP Vol.1 プロトコル(W・リチャード・スティーヴンス,ピアソン・エデュケーション)
 * コンピュータネットワーク 第5版(アンドリュー・S・タネンバウム,デイビッド・J・ウエザロール,日経BP)
 * Interface連載 パケットづくりではじめるネットワーク入門(坂井弘亮,CQ出版社)
+* 本当の基礎からのWebアプリケーション入門---Webサーバを作ってみよう(http://kmaebashi.com/programmer/webserver/)
+* TCP詳説(西田佳史,https://www.nic.ad.jp/ja/materials/iw/1999/notes/C3.PDF)
 * TOPPERS新世代カーネル統合仕様書(https://mitsut.github.io/toppers_kernel_spec/)
 
 # License
