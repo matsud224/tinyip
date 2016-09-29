@@ -19,6 +19,7 @@
 #include "sntpclient.h"
 #include "ethernet.h"
 #include "util.h"
+#include "morse.h"
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
@@ -38,9 +39,15 @@ svc_perror(const char *file, int_t line, const char *expr, ER ercd)
 
 #define	SVC_PERROR(expr)	svc_perror(__FILE__, __LINE__, #expr, (expr))
 
-void user_button0_push() {
-	mcled_change(COLOR_OFF);
-	isig_sem(USER_BTNSEM);
+void user_button0_fall() {
+	mcled_change(COLOR_LIGHTBLUE);
+	iset_flg(BUTTON_FLG, PTN_FALL);
+    return;
+}
+
+void user_button0_rise() {
+	mcled_change(COLOR_YELLOW);
+	iset_flg(BUTTON_FLG, PTN_RISE);
     return;
 }
 
@@ -81,7 +88,9 @@ void main_task(intptr_t exinf) {
 	dly_tsk(2000); //Ethernetコントローラの準備待ち
 
 	/* add your code here */
-	user_button0.fall(user_button0_push);
+	user_button0.fall(user_button0_fall);
+	user_button0.rise(user_button0_rise);
+
 	sta_cyc(CYCHDR1);
 
 	act_tsk(ETHERRECV_TASK);
@@ -91,9 +100,8 @@ void main_task(intptr_t exinf) {
 	sta_cyc(TCP_SEND_CYC);
 	act_tsk(TCP_TIMER_TASK);
 	sta_cyc(TCP_TIMER_CYC);
-
 	act_tsk(HTTPD_TASK);
-	act_tsk(USER_TASK);
+	act_tsk(MORSE_TASK);
 }
 
 
@@ -101,7 +109,12 @@ void main_task(intptr_t exinf) {
 void user_task(intptr_t exinf){
 	LOG("usertask start");
 
-	return;
+	char input;
+
+	while(true){
+		rcv_dtq(INPUTCHAR_DTQ, (intptr_t*)(&input));
+		lcd.printf("%c", input);
+	}
 }
 
 

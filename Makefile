@@ -7,7 +7,7 @@ all:
 #  Application file
 #
 APPLNAME = tinyip
-APPL_CXXOBJS = ethernet.o ip.o arp.o icmp.o udp.o tcp.o util.o netconf.o netlib.o sntpclient.o httpd.o ftpd.o
+APPL_CXXOBJS = ethernet.o ip.o arp.o icmp.o udp.o tcp.o util.o morse.o netconf.o netlib.o sntpclient.o httpd.o ftpd.o
 USE_CXX = true
 APPL_CFG = $(APPLNAME).cfg
 

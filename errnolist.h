@@ -1,3 +1,5 @@
+#pragma once
+
 #define EBADF -1
 #define EAGAIN -2
 #define ETIMEOUT -3

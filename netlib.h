@@ -12,7 +12,7 @@
 #define TIMEOUT_NOTUSE TMO_FEVR
 
 
-int socket(int type, ID sem);
+int socket(int type);
 int bind(int s, uint16_t my_port);
 int close(int s);
 int sendto(int s, const char *msg, uint32_t len, int flags, uint8_t to_addr[], uint16_t to_port);

@@ -33,14 +33,13 @@ struct sntp_hdr{
 #define SNTP_MODE_CLIENT 3
 #define SNTP_MODE_SERVER 4
 
-
-int sntp_gettime(uint8_t ipaddr[], timestamp *ts, ID recvsem, TMO timeout){
+int sntp_gettime(uint8_t ipaddr[], timestamp *ts, TMO timeout){
 	sntp_hdr sntpmsg = {0};
 	sntpmsg.vn = 4;
 	sntpmsg.mode = SNTP_MODE_CLIENT;
 	//自身が時計を持っていないから、送信時刻は記入しない
 
-	int sock = socket(SOCK_DGRAM, recvsem); //TCPは使わないので、セマフォの指定を省略
+	int sock = socket(SOCK_DGRAM); //TCPは使わないので、セマフォの指定を省略
 	//bind(sock, 123);
 	int err;
 	if((err = sendto(sock, (char*)&sntpmsg, sizeof(sntpmsg), 0, ipaddr, 123)) < 0){
@@ -55,4 +54,9 @@ int sntp_gettime(uint8_t ipaddr[], timestamp *ts, ID recvsem, TMO timeout){
 	ts->pico = ntoh32(sntpmsg.trantime.pico);
 	close(sock);
 	return 0;
+}
+
+void sntpclient_task(intptr_t exinf){
+
+	return;
 }

@@ -54,6 +54,7 @@
 			<Option target="depend" />
 			<Option target="clean" />
 		</Unit>
+		<Unit filename="dhclient.cpp" />
 		<Unit filename="envdep.h" />
 		<Unit filename="errnolist.h" />
 		<Unit filename="ethernet.cpp">
@@ -99,6 +100,8 @@
 			<Option target="clean" />
 			<Option target="depend" />
 		</Unit>
+		<Unit filename="morse.cpp" />
+		<Unit filename="morse.h" />
 		<Unit filename="netconf.cpp" />
 		<Unit filename="netconf.h" />
 		<Unit filename="netlib.cpp" />

@@ -16,7 +16,7 @@
 
 socket_t sockets[MAX_SOCKET];
 
-int socket(int type, ID sem){
+int socket(int type){
 	ID ownertsk;
 	get_tid(&ownertsk);
 
@@ -38,7 +38,7 @@ int socket(int type, ID sem){
 	memset(sockets[i].addr.partner_addr, 0, IP_ADDR_LEN);
 	switch(type){
 	case SOCK_DGRAM:
-		sockets[i].ctrlblock.ucb = ucb_new(ownertsk, sem);
+		sockets[i].ctrlblock.ucb = ucb_new(ownertsk);
 		break;
 	case SOCK_STREAM:
 		sockets[i].ctrlblock.tcb = NULL;

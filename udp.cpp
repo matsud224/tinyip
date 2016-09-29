@@ -15,7 +15,6 @@
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
 struct udp_ctrlblock{
-	ID rqueuesem;
 	int recv_front,recv_back;
 	ether_flame **recv_queue; //「ether_flameのポインタ」の配列
 	//hdrstack **send_queue;
@@ -76,7 +75,7 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 	//キューに入れる
 	udp_ctrlblock *ucb;
 	ucb = sock->ctrlblock.ucb;
-	wai_sem(ucb->rqueuesem);
+	wai_sem(UDP_RECV_SEM);
 	ucb->recv_queue[ucb->recv_front] = flm;
 	ucb->recv_front++;
 	if(ucb->recv_front == DGRAM_RECV_QUEUE) ucb->recv_front=0;
@@ -88,7 +87,7 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 	}
 	//LOG("received udp datagram (queue %d/%d)", sock->recv_front, sock->recv_back);
 	if(ucb->recv_waiting) wup_tsk(sock->ownertsk);
-	sig_sem(ucb->rqueuesem);
+	sig_sem(UDP_RECV_SEM);
 
 	sig_sem(UDP_SEM);
 	return;
@@ -143,17 +142,17 @@ static char *udp_analyze(ether_flame *flm, uint16_t *datalen, uint8_t srcaddr[],
 }
 
 int32_t udp_recvfrom(udp_ctrlblock *ucb, char *buf, uint32_t len, int flags, uint8_t from_addr[], uint16_t *from_port, TMO timeout){
-	wai_sem(ucb->rqueuesem);
+	wai_sem(UDP_RECV_SEM);
 	//recv_waitingがtrueの時にデータグラムがやってきたら起こしてもらえる
 	ucb->recv_waiting = true;
 	while(true){
 		if(ucb->recv_front==ucb->recv_back){
-			sig_sem(ucb->rqueuesem);
+			sig_sem(UDP_RECV_SEM);
 			//LOG("user task zzz...");
             if(tslp_tsk(timeout) == E_TMOUT){
-				wai_sem(ucb->rqueuesem);
+				wai_sem(UDP_RECV_SEM);
 				ucb->recv_waiting = false;
-				sig_sem(ucb->rqueuesem);
+				sig_sem(UDP_RECV_SEM);
 				return ETIMEOUT;
             }
 		}else{
@@ -164,18 +163,17 @@ int32_t udp_recvfrom(udp_ctrlblock *ucb, char *buf, uint32_t len, int flags, uin
 			ucb->recv_back++;
 			if(ucb->recv_back==DGRAM_RECV_QUEUE) ucb->recv_back=0;
 			ucb->recv_waiting = false;
-			sig_sem(ucb->rqueuesem);
+			sig_sem(UDP_RECV_SEM);
 			return MIN(len,datalen);
 		}
 		//LOG("retry...");
-		wai_sem(ucb->rqueuesem);
+		wai_sem(UDP_RECV_SEM);
 	}
 }
 
-udp_ctrlblock *ucb_new(ID owner, ID recvsem){
+udp_ctrlblock *ucb_new(ID owner){
 	udp_ctrlblock *ucb = new udp_ctrlblock;
 	ucb->ownertsk = owner;
-	ucb->rqueuesem = recvsem;
 	ucb->recv_queue=new ether_flame*[DGRAM_RECV_QUEUE];
 
 	ucb->recv_front=0; ucb->recv_back=0;

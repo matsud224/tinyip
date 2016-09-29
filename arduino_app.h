@@ -68,6 +68,14 @@
 #define HTTPD_TASK_STACK_SIZE 4096
 #endif  /* HTTPD_TASK_STACK_SIZE */
 
+#ifndef MORSE_TASK_PRI
+#define MORSE_TASK_PRI  5
+#endif /* MORSE_TASK_PRI */
+
+#ifndef MORSE_STACK_SIZE
+#define MORSE_TASK_STACK_SIZE 4096
+#endif  /* MORSE_TASK_STACK_SIZE */
+
 /*
  *  Definition of memory size for RTOS
  *
@@ -100,6 +108,7 @@ extern void tcp_timer_cyc(intptr_t exinf);
 extern void tcp_send_task(intptr_t exinf);
 extern void tcp_send_cyc(intptr_t exinf);
 extern void httpd_task(intptr_t exinf);
+extern void morse_task(intptr_t exinf);
 
 #ifdef __cplusplus
 }

@@ -43,8 +43,10 @@ static int search_arptable(uint32_t ipaddr, uint8_t macaddr[], hdrstack *flm){
 	}
 
 	//登録なしなので、IPアドレスだけ登録。保留リストに入れる
-	if(arptable[next_register].pending!=NULL)
+	if(arptable[next_register].pending!=NULL){
 		delete arptable[next_register].pending;
+		arptable[next_register].pending = NULL;
+	}
 	flist *pf = new flist;
 	pf->flm = flm; pf->next = NULL;
 	arptable[next_register].pending = pf;
@@ -80,9 +82,10 @@ void register_arptable(uint32_t ipaddr, uint8_t macaddr[]){
 			return;
 		}
 	}
-	if(arptable[next_register].pending!=NULL)
+	if(arptable[next_register].pending!=NULL){
 		delete arptable[next_register].pending;
-	arptable[next_register].pending = NULL;
+		arptable[next_register].pending = NULL;
+	}
 	arptable[next_register].timeout=ARBTBL_TIMEOUT_CLC;
 	arptable[next_register].ipaddr = ipaddr;
 	memcpy(arptable[next_register].macaddr, macaddr, ETHER_ADDR_LEN);

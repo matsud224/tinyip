@@ -309,9 +309,16 @@ static void tcb_reset(tcp_ctrlblock *tcb){
 			tcb->tcbqueue_len--;
 		}
 		delete [] tcb->tcbqueue;
+		tcb->tcbqueue = NULL;
 	}
-	if(tcb->recv_buf!=NULL) delete [] tcb->recv_buf;
-	if(tcb->send_buf!=NULL) delete [] tcb->send_buf;
+	if(tcb->recv_buf!=NULL){
+		delete [] tcb->recv_buf;
+		tcb->recv_buf = NULL;
+	}
+	if(tcb->send_buf!=NULL){
+		delete [] tcb->send_buf;
+		tcb->send_buf = NULL;
+	}
 
 	tcb->state = TCP_STATE_CLOSED;
 	tcb->rtt = 1;
@@ -403,8 +410,10 @@ ID tcb_getowner(tcp_ctrlblock *tcb){
 }
 
 static void tcb_alloc_queue(tcp_ctrlblock *tcb, int backlog){
-	if(tcb->tcbqueue != NULL)
+	if(tcb->tcbqueue != NULL){
 		delete [] tcb->tcbqueue;
+		tcb->tcbqueue = NULL;
+	}
 	if(backlog > 0){
 		tcb->backlog = backlog;
 		tcb->tcbqueue_head = 0;
@@ -931,6 +940,22 @@ static int tcp_read_from_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, T
 	uint32_t remain = len;
 	uint32_t head = (tcb->recv_next+tcb->recv_window)%STREAM_RECV_BUF;
 	while(true){
+		if(tcb->recv_window == STREAM_RECV_BUF){
+			//バッファが空
+			switch(tcb->state){
+			case TCP_STATE_ESTABLISHED:
+			case TCP_STATE_FIN_WAIT_1:
+			case TCP_STATE_FIN_WAIT_2:
+				break;
+			default:
+				//FINを受信していて、かつバッファが空
+				if(tcb->recv_buf!=NULL){
+					delete [] tcb->recv_buf;
+					tcb->recv_buf = NULL;
+				}
+				return ECONNCLOSING;
+			}
+		}
 		while(STREAM_RECV_BUF > tcb->recv_window && remain > 0){
 			//LOG("read from recvbuf!");
 			*data++ = tcb->recv_buf[head];
@@ -952,9 +977,6 @@ static int tcp_read_from_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, T
 		}else{
 			tcb->recv_waiting = false;
 			return len - remain;
-		}
-		if(tcb->state != TCP_STATE_ESTABLISHED){
-			return ECONNCLOSING;
 		}
 	}
 }
@@ -1310,8 +1332,10 @@ int tcp_connect(tcp_ctrlblock *tcb, TMO timeout){
 		break;
 	case TCP_STATE_LISTEN:
 		tcb->backlog = 0;
-		if(tcb->tcbqueue != NULL)
+		if(tcb->tcbqueue != NULL){
 			delete [] tcb->tcbqueue;
+			tcb->tcbqueue = NULL;
+		}
 		break;
 	default:
 		return ECONNEXIST;
@@ -1509,16 +1533,8 @@ int tcp_receive(tcp_ctrlblock *tcb, char *buf, uint32_t len, TMO timeout){
 	case TCP_STATE_ESTABLISHED:
 	case TCP_STATE_FIN_WAIT_1:
 	case TCP_STATE_FIN_WAIT_2:
-		result = tcp_read_from_recvbuf(tcb, buf, len, timeout);
-		sig_sem(TCP_SEM);
-		return result;
 	case TCP_STATE_CLOSE_WAIT:
-		if(tcb->recv_window == STREAM_RECV_BUF){
-			//バッファが空の時...これ以上受信されることはない
-			result = ECONNCLOSING;
-		}else{
-			result = tcp_read_from_recvbuf(tcb, buf, len, timeout);
-		}
+		result = tcp_read_from_recvbuf(tcb, buf, len, timeout);
 		sig_sem(TCP_SEM);
 		return result;
 	case TCP_STATE_CLOSING:

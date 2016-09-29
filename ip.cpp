@@ -95,9 +95,10 @@ void timeout_10sec_task(intptr_t exinf) {
 				arptable[i].timeout--;
 				if(arptable[i].timeout == 0){
 					//LOG("ARP entry: time out!");
-					if(arptable[i].pending!=NULL)
+					if(arptable[i].pending!=NULL){
 						delete arptable[i].pending;
-					arptable[i].pending = NULL;
+						arptable[i].pending = NULL;
+					}
 				}else{
 					if(arptable[i].pending!=NULL){
 						ether_flame *request = make_arprequest_flame((uint8_t*)(&arptable[i].ipaddr));

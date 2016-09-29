@@ -36,7 +36,7 @@ static content_type_entry content_type_dict[] = {
 	{"bmp", "image/bmp"},
 	{"mp3", "audio/mpeg"},
 	{"mp4", "audio/mp4"},
-	{"", "text/plain"}, //該当しないものはテキストとして送る
+	{NULL, "text/plain"}, //該当しないものはテキストとして送る
 };
 
 static const char *get_content_type(const char *extension){
@@ -53,13 +53,13 @@ static int http_respond(int s, const char *st_code_str, const char *cont_str, co
 	static char httpver[] = "HTTP/1.1 ";
 	static char hdr1[] = "\r\nConnection: close\r\n"
 						 "Content-type: ";
-	//mcled_change(COLOR_BLUE);
+
 	send(s, httpver, sizeof(httpver)-1, 0, TIMEOUT_NOTUSE);
 	send(s, st_code_str, strlen(st_code_str), 0, TIMEOUT_NOTUSE);
 	send(s, hdr1, sizeof(hdr1)-1, 0, TIMEOUT_NOTUSE);
 	send(s, cont_str, strlen(cont_str), 0, TIMEOUT_NOTUSE);
 	send(s, "\r\n\r\n", 4, 0, TIMEOUT_NOTUSE);
-	//mcled_change(COLOR_GREEN);
+
 	FILE *fp = fopen(path, "rb");
 	if(fp == NULL){
 		return -1;
@@ -67,12 +67,12 @@ static int http_respond(int s, const char *st_code_str, const char *cont_str, co
 		int readlen;
 		while((readlen = fread(buf, 1, HTTP_BUF_LEN, fp)) > 0)
 			if(send(s, buf, readlen, 0, TIMEOUT_NOTUSE)<0){
-				LOG("send error");
+				//LOG("send error");
 				break;
 			}
 	}
 	fclose(fp);
-	LOG("--sent--");
+	//LOG("--sent--");
 
 	return 0;
 }
@@ -85,7 +85,7 @@ void httpd_task(intptr_t exinf){
     uint16_t clientport;
     static char buf[512];
     static char path_buf[256];
-    int s = socket(SOCK_STREAM, NULL);
+    int s = socket(SOCK_STREAM);
     bind(s, 80);
 
     if(listen(s, 10)<0){
