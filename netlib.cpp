@@ -36,6 +36,7 @@ int socket(int type){
 	sockets[i].addr.my_port=0;
 	sockets[i].addr.partner_port = 0;
 	memset(sockets[i].addr.partner_addr, 0, IP_ADDR_LEN);
+
 	switch(type){
 	case SOCK_DGRAM:
 		sockets[i].ctrlblock.ucb = ucb_new(ownertsk);
@@ -54,7 +55,7 @@ int socket(int type){
 bool is_usedport(uint16_t port){
 	//already locked.
 	for(int i=0;i<MAX_SOCKET;i++){
-		if(sockets[i].type!=SOCK_UNUSED && sockets[i].addr.my_port==port){
+		if(sockets[i].type!=SOCK_UNUSED && sockets[i].type!=SOCK_RESERVED && sockets[i].addr.my_port==port){
 			return true;
 		}
 	}
@@ -113,11 +114,12 @@ int close(int s){
 }
 
 int sendto(int s, const char *msg, uint32_t len, int flags, uint8_t to_addr[], uint16_t to_port){
-	if(bind(s, 0) == 0){
+	if(sockets[s].addr.my_port==0 && bind(s, 0) != 0){
 		return EAGAIN;
 	}
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
+		LOG("udp: send to %s", ipaddr2str(to_addr));
 		return udp_sendto(msg, len, flags, to_addr, to_port, sockets[s].addr.my_port);
 	default:
 		return EBADF;
@@ -125,7 +127,7 @@ int sendto(int s, const char *msg, uint32_t len, int flags, uint8_t to_addr[], u
 }
 
 int recvfrom(int s, char *buf, uint32_t len, int flags, uint8_t from_addr[], uint16_t *from_port, TMO timeout){
-	if(bind(s, 0) == 0){
+	if(sockets[s].addr.my_port==0 && bind(s, 0) != 0){
 		return EAGAIN;
 	}
 	switch(sockets[s].type){
@@ -186,11 +188,14 @@ static int accepted_tcb_to_socket(tcp_ctrlblock *listening_tcb, uint8_t client_a
 		sig_sem(SOCKTBL_SEM);
 		return -1;
 	}
-
+	sockets[i].type=SOCK_RESERVED;
+	sig_sem(SOCKTBL_SEM);
 
 	tcp_ctrlblock *accepted = tcp_accept(listening_tcb, client_addr, client_port, timeout);
 
+	wai_sem(SOCKTBL_SEM);
 	if(accepted == NULL){
+		sockets[i].type = SOCK_UNUSED;
 		sig_sem(SOCKTBL_SEM);
 		return -1;
 	}

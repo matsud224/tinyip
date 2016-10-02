@@ -76,6 +76,14 @@
 #define MORSE_TASK_STACK_SIZE 4096
 #endif  /* MORSE_TASK_STACK_SIZE */
 
+#ifndef DHCLIENT_TASK_PRI
+#define DHCLIENT_TASK_PRI  5
+#endif /* DHCLIENT_TASK_PRI */
+
+#ifndef DHCLIENT_STACK_SIZE
+#define DHCLIENT_TASK_STACK_SIZE 4096
+#endif  /* DHCLIENT_TASK_STACK_SIZE */
+
 /*
  *  Definition of memory size for RTOS
  *
@@ -109,6 +117,8 @@ extern void tcp_send_task(intptr_t exinf);
 extern void tcp_send_cyc(intptr_t exinf);
 extern void httpd_task(intptr_t exinf);
 extern void morse_task(intptr_t exinf);
+extern void dhclient_task(intptr_t exinf);
+extern void dhclient_alarm_handler(intptr_t exinf);
 
 #ifdef __cplusplus
 }

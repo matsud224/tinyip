@@ -43,10 +43,10 @@ static uint16_t udp_checksum(ip_hdr *iphdr, udp_hdr *uhdr){
 
 void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 	//ブロードキャスト/マルチキャストアドレスは不許可
-	if(memcmp(iphdr->ip_dst, IPADDR, IP_ADDR_LEN) != 0){
+	/*if(memcmp(iphdr->ip_dst, IPADDR, IP_ADDR_LEN) != 0){
 		LOG("udp packet discarded(bad address).");
 		goto exit;
-	}
+	}*/
 	//ヘッダ検査
 	if(flm->size < sizeof(ether_hdr)+(iphdr->ip_hl*4)+sizeof(udp_hdr) ||
 		flm->size != sizeof(ether_hdr)+(iphdr->ip_hl*4)+ntoh16(uhdr->uh_ulen)){

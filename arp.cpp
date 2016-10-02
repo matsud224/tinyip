@@ -19,8 +19,9 @@ static int next_register = 0; //次の登録位置
 #define RESULT_ADD_LIST 2
 static int search_arptable(uint32_t ipaddr, uint8_t macaddr[], hdrstack *flm){
 	wai_sem(ARPTBL_SEM);
+
 	for(int i=0;i<MAX_ARPTABLE;i++){
-		if(arptable[i].ipaddr == ipaddr && arptable[i].timeout>0){
+		if(arptable[i].ipaddr == ipaddr &&  arptable[i].timeout>0){
 			int result;
 			if(arptable[i].pending==NULL){
 				//保留無し->アドレス解決できてる

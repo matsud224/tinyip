@@ -194,6 +194,7 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 		goto exit;
 	}
 	//自分宛てかチェック
+	/*
 	if(memcmp(iphdr->ip_dst, IPADDR, IP_ADDR_LEN) != 0){
 		uint32_t addr=ntoh32(*(uint32_t*)IPADDR),
 					mask=ntoh32(*(uint32_t*)NETMASK),broad;
@@ -203,6 +204,7 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 			goto exit;
 		}
 	}
+	*/
 
 	if(!((ntoh16(iphdr->ip_off) & IP_OFFMASK) == 0 && (ntoh16(iphdr->ip_off) & IP_MF) == 0)){
 		//フラグメント
@@ -330,7 +332,7 @@ void ip_routing(uint8_t dstaddr[]){
 	uint32_t myaddr=ntoh32(*(uint32_t*)IPADDR);
 	uint32_t mymask=ntoh32(*(uint32_t*)NETMASK);
 	uint32_t dst = ntoh32(*(uint32_t*)IPADDR);
-	if((myaddr&mymask)!=(dst&mymask)){
+	if(dst!=0 && (myaddr&mymask)!=(dst&mymask) && memcmp(dstaddr, IPBROADCAST, IP_ADDR_LEN) != 0){
 		//同一のネットワークでない->デフォルトゲートウェイに流す
 		memcpy(dstaddr, DEFAULT_GATEWAY, IP_ADDR_LEN);
 	}

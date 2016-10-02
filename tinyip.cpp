@@ -20,6 +20,7 @@
 #include "ethernet.h"
 #include "util.h"
 #include "morse.h"
+#include "arp.h"
 
 #define MIN(x,y) ((x)<(y)?(x):(y))
 
@@ -93,15 +94,12 @@ void main_task(intptr_t exinf) {
 
 	sta_cyc(CYCHDR1);
 
+	register_arptable(IPADDR_TO_UINT32(IPBROADCAST), ETHERBROADCAST);
 	act_tsk(ETHERRECV_TASK);
-	act_tsk(TIMEOUT_10SEC_TASK);
-	sta_cyc(TIMEOUT_10SEC_CYC);
 	act_tsk(TCP_SEND_TASK);
-	sta_cyc(TCP_SEND_CYC);
-	act_tsk(TCP_TIMER_TASK);
-	sta_cyc(TCP_TIMER_CYC);
 	act_tsk(HTTPD_TASK);
-	act_tsk(MORSE_TASK);
+	//act_tsk(MORSE_TASK);
+	act_tsk(DHCLIENT_TASK);
 }
 
 

@@ -1682,6 +1682,10 @@ void tcp_timer_cyc(intptr_t exinf) {
 }
 
 void tcp_send_task(intptr_t exinf){
+	sta_cyc(TCP_SEND_CYC);
+	act_tsk(TCP_TIMER_TASK);
+	sta_cyc(TCP_TIMER_CYC);
+
 	while(true){
 		SEMINFO("sendtask waiting");
 		wai_sem(TCP_SEM);

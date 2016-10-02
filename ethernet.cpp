@@ -36,6 +36,9 @@ void ethernet_initialize(){
 static int recvskip_counter = 0;
 
 void etherrecv_task(intptr_t exinf) {
+	act_tsk(TIMEOUT_10SEC_TASK);
+	sta_cyc(TIMEOUT_10SEC_CYC);
+
 	wait(1);
     while(true){
 		twai_sem(ETHERRECV_SEM, 10);
@@ -57,6 +60,11 @@ void etherrecv_task(intptr_t exinf) {
 				recvskip_counter++;
 
 				ether_hdr *ehdr = (ether_hdr*)buf;
+				if(memcmp(ehdr->ether_dhost, MACADDR, ETHER_ADDR_LEN)!=0 &&
+					 memcmp(ehdr->ether_dhost, ETHERBROADCAST, ETHER_ADDR_LEN)!=0){
+					delete [] buf; continue;
+				}
+
 				ether_flame *flm = new ether_flame;
 				flm->size = size;
 				flm->buf = buf;

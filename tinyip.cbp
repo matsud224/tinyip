@@ -102,6 +102,8 @@
 		</Unit>
 		<Unit filename="morse.cpp" />
 		<Unit filename="morse.h" />
+		<Unit filename="nameresolver.cpp" />
+		<Unit filename="nameresolver.h" />
 		<Unit filename="netconf.cpp" />
 		<Unit filename="netconf.h" />
 		<Unit filename="netlib.cpp" />

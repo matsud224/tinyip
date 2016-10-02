@@ -6,8 +6,9 @@
 
 
 #define SOCK_UNUSED 0
-#define SOCK_STREAM 1 //TCP
-#define SOCK_DGRAM 2 //UDP
+#define SOCK_RESERVED 1
+#define SOCK_STREAM 2 //TCP
+#define SOCK_DGRAM 3 //UDP
 
 #define TIMEOUT_NOTUSE TMO_FEVR
 
