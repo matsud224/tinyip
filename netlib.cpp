@@ -192,7 +192,7 @@ static int accepted_tcb_to_socket(tcp_ctrlblock *listening_tcb, uint8_t client_a
 	sig_sem(SOCKTBL_SEM);
 
 	tcp_ctrlblock *accepted = tcp_accept(listening_tcb, client_addr, client_port, timeout);
-
+LOG("accepted");
 	wai_sem(SOCKTBL_SEM);
 	if(accepted == NULL){
 		sockets[i].type = SOCK_UNUSED;

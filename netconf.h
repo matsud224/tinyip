@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include "protohdr.h"
 
+//#define USE_DHCP
+
 #define MTU 1500
 #define MSS (MTU-40)
 #define IP_TTL 64
@@ -29,7 +31,7 @@
 #define DHCLIENT_WAITTIME_INIT 4000 //最初の再送待ち時間
 #define DHCLIENT_WAITTIME_MAX (1000*64) //最大再送待ち時間
 
-#define ETHER_SEND_SKIP -1 //設定した回数の送信ごとにフレームをスキップする(負の値で無効)
+#define ETHER_SEND_SKIP 10 //設定した回数の送信ごとにフレームをスキップする(負の値で無効)
 #define ETHER_RECV_SKIP -1
 
 extern uint8_t IPBROADCAST[IP_ADDR_LEN];

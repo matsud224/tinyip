@@ -103,7 +103,7 @@ void arp_process(ether_flame *flm, ether_arp *earp){
 		ntoh16(earp->arp_pro) != ETHERTYPE_IP ||
 		earp->arp_hln != ETHER_ADDR_LEN || earp->arp_pln != 4 ||
 		(ntoh16(earp->arp_op) != ARPOP_REQUEST && ntoh16(earp->arp_op) !=ARPOP_REPLY) ){
-		//LOG("invalid arp header.");
+		LOG("invalid arp header.");
 		goto exit;
 	}
 

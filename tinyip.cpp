@@ -41,13 +41,11 @@ svc_perror(const char *file, int_t line, const char *expr, ER ercd)
 #define	SVC_PERROR(expr)	svc_perror(__FILE__, __LINE__, #expr, (expr))
 
 void user_button0_fall() {
-	mcled_change(COLOR_LIGHTBLUE);
 	iset_flg(BUTTON_FLG, PTN_FALL);
     return;
 }
 
 void user_button0_rise() {
-	mcled_change(COLOR_YELLOW);
 	iset_flg(BUTTON_FLG, PTN_RISE);
     return;
 }
@@ -96,10 +94,12 @@ void main_task(intptr_t exinf) {
 
 	register_arptable(IPADDR_TO_UINT32(IPBROADCAST), ETHERBROADCAST);
 	act_tsk(ETHERRECV_TASK);
+	#ifdef USE_DHCP
+		act_tsk(DHCLIENT_TASK);
+	#endif //USE_DHCP
 	act_tsk(TCP_SEND_TASK);
 	act_tsk(HTTPD_TASK);
 	//act_tsk(MORSE_TASK);
-	act_tsk(DHCLIENT_TASK);
 }
 
 

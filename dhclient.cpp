@@ -248,7 +248,7 @@ retry:
 
 	if((result = recvfrom(s, buf, len, 0, NULL, NULL, current_resend_waittime)) == ETIMEOUT){
 		FLGPTN ptn;
-		if(is_watch_alarm && pol_flg(DHCLIENT_ALM_FLG, FLG_TIMEOUT, TWF_ORW, &ptn)){
+		if(is_watch_alarm && pol_flg(DHCLIENT_ALM_FLG, FLG_TIMEOUT, TWF_ORW, &ptn)==E_OK){
 			return ETIMEOUT;
 		}
 		current_resend_waittime *= 2;
@@ -333,13 +333,13 @@ void dhclient_task(intptr_t exinf){
 	while(true){
 		switch(state){
 		case DHCLIENT_STATE_INIT:
-			//LOG("dhclient: state=init");
+			LOG("dhclient: state=init");
 			xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_DISCOVER, NULL, NULL);
 			result=dhcpmsg_send_and_wait_reply(sock, buf, buflen, xid, IPBROADCAST, false);
 			state = DHCLIENT_STATE_SELECTING;
 			break;
 		case DHCLIENT_STATE_SELECTING:
-			//LOG("dhclient: state=selecting");
+			LOG("dhclient: state=selecting");
 			int val;
 			if((val=dhcpmsg_analyze(buf, result, client_addr, server_addr, &opts)) == DHCP_MSGTYPE_OFFER){
 				xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_REQUEST, client_addr, server_addr);
@@ -364,6 +364,7 @@ void dhclient_task(intptr_t exinf){
 					t2 = opts.rebindtime;
 					if(!t1) t1 = lease/2;
 					if(!t2) t2 = lease*0.8;
+					LOG("t1=%u, t2=%u, lease=%u", t1,t2,lease);
 					memcpy(DEFAULT_GATEWAY, opts.defaultgw, IP_ADDR_LEN);
 					memcpy(DNSSERVER, opts.dnsserver, IP_ADDR_LEN);
 					memcpy(NETMASK, opts.subnetmask, IP_ADDR_LEN);
@@ -374,9 +375,11 @@ void dhclient_task(intptr_t exinf){
 					break;
 				case DHCP_MSGTYPE_NAK:
 					state = DHCLIENT_STATE_INIT;
+					break;
 				default:
 					xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_REQUEST, client_addr, server_addr);
 					result=dhcpmsg_send_and_wait_reply(sock, buf, buflen, xid, IPBROADCAST, false);
+					break;
 				}
 			}
 			break;
@@ -415,6 +418,7 @@ void dhclient_task(intptr_t exinf){
 				case DHCP_MSGTYPE_NAK:
 					clear_config();
 					state = DHCLIENT_STATE_INIT;
+					break;
 				default:
 					dhclient_alarm_restart();
 					xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_REQUEST, client_addr, server_addr);

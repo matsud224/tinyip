@@ -56,10 +56,10 @@ struct hdrstack{
 struct ip_hdr{
 #ifdef BIG_ENDIAN
 	unsigned ip_v:4, ip_hl:4;
-#endif
+#endif //BIG_ENDIAN
 #ifdef LITTLE_ENDIAN
 	unsigned ip_hl:4, ip_v:4;
-#endif // BIG_ENDIAN
+#endif // LITTLE_ENDIAN
 	uint8_t ip_tos;
 	uint16_t ip_len;
 	uint16_t ip_id;
