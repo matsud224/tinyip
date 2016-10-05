@@ -14,6 +14,8 @@
 #define MIN(x,y) ((x)<(y)?(x):(y))
 #define MOD(x,y) ((x) % (y))
 
+#define RECVBUF_INDEX_DECREMENT(i) ((i)==0?STREAM_RECV_BUF-1:(i)-1)
+
 //#define SEM_DEBUG
 
 #ifdef SEM_DEBUG
@@ -62,7 +64,11 @@ struct tcp_ctrlblock{
 	bool recv_waiting;
 	tcp_arrival *arrival_list;
 
-	bool myfin_requested;
+	int myfin_state;
+#define FIN_NOTREQUESTED 0
+#define FIN_REQUESTED 1
+#define FIN_SENT 2
+#define FIN_ACKED 3
 	uint32_t myfin_seq; //自身が送信したFINのシーケンス番号（ACKが来たか確かめる用に覚えとく）
 
 	int state;
@@ -118,6 +124,7 @@ struct tcp_timer_option{
 			uint8_t flags;
 			bool has_mss;
 			bool is_zerownd_probe;
+			transport_addr addr; //send_ctrlsegで送った場合にこちらが優先される（tcbにアドレス未登録の場合があるから）
 		} resend;
 		struct{
 			uint32_t seq;
@@ -148,7 +155,6 @@ tcp_timer_t *tcptimer = NULL;
 tcb_list *tcblist = NULL;
 
 static void tcp_timer_add(tcp_ctrlblock *tcb, uint32_t sec, int type, tcp_timer_option *opt);
-static void tcp_timer_add_locked(tcp_ctrlblock *tcb, uint32_t sec, int type, tcp_timer_option *opt);
 static void tcp_timer_remove_all(tcp_ctrlblock *tcb);
 
 static bool between_le_lt(uint32_t a, uint32_t b, uint32_t c);
@@ -177,8 +183,7 @@ static void tcp_send_ctrlseg(uint32_t seq, uint32_t ack, uint16_t win, uint8_t f
 							 uint8_t to_addr[], uint16_t to_port, uint16_t my_port, bool use_resend, tcp_ctrlblock *tcb);
 static hdrstack *sendbuf_to_hdrstack(tcp_ctrlblock *tcb, uint32_t from, uint32_t len, int *next_from);
 static void tcp_send_from_buf(tcp_ctrlblock *tcb);
-static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index,
-								 uint32_t start_seq, uint32_t end_seq, uint8_t flags, bool has_resend, bool is_zwp);
+static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, tcp_timer_option *opt);
 
 void tcp_process(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr);
 static void tcp_process_closed(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, uint16_t payload_len);
@@ -198,13 +203,7 @@ int tcp_receive(tcp_ctrlblock *tcb, char *buf, uint32_t len, TMO timeout);
 int tcp_close(tcp_ctrlblock *tcb);
 
 
-
 static void tcp_timer_add(tcp_ctrlblock *tcb, uint32_t sec, int type, tcp_timer_option *opt){
-	tcp_timer_add_locked(tcb, sec, type, opt);
-	return;
-}
-
-static void tcp_timer_add_locked(tcp_ctrlblock *tcb, uint32_t sec, int type, tcp_timer_option *opt){
 	//already locked.
 	tcp_timer_t *tim = new tcp_timer_t;
 	tim->type = type;
@@ -324,8 +323,8 @@ static void tcb_reset(tcp_ctrlblock *tcb){
 	}
 
 	tcb->state = TCP_STATE_CLOSED;
-	tcb->rtt = 1;
-	tcb->myfin_requested = false;
+	tcb->rtt = TCP_RTT_INIT;
+	tcb->myfin_state = FIN_NOTREQUESTED;
 
 	tcb->backlog = 0;
 	tcb->tcbqueue_head = 0;
@@ -374,8 +373,8 @@ tcp_ctrlblock *tcb_new(){
 	tcb->is_userclosed = false;
 
 	tcb->state = TCP_STATE_CLOSED;
-	tcb->rtt = 1;
-	tcb->myfin_requested = false;
+	tcb->rtt = TCP_RTT_INIT;
+	tcb->myfin_state = FIN_NOTREQUESTED;
 
 	tcb->backlog = 0;
 	tcb->tcbqueue_head = 0;
@@ -565,6 +564,9 @@ static void tcp_send_ctrlseg(uint32_t seq, uint32_t ack, uint16_t win, uint8_t f
 		timer_opt->option.resend.flags = flags;
 		timer_opt->option.resend.has_mss = !(opt==NULL);
 		timer_opt->option.resend.is_zerownd_probe = false;
+		timer_opt->option.resend.addr.my_port = my_port;
+		timer_opt->option.resend.addr.partner_port = to_port;
+		memcpy(timer_opt->option.resend.addr.partner_addr, to_addr, IP_ADDR_LEN);
 	}
 
 	ip_send(tcpseg, to_addr, IPTYPE_TCP);
@@ -642,7 +644,7 @@ static void tcp_process_synsent(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, 
 	}
 	if(thdr->th_flags & TH_RST){
 		if(between_le_le(tcb->send_unack_seq, ntoh32(thdr->th_ack), tcb->send_next_seq)){
-			tcb->state = TCP_STATE_CLOSED;
+			tcb_reset(tcb);
 			if(tcb->establish_waiting) wup_tsk(tcb->ownertsk);
 		}
 		goto exit;
@@ -658,9 +660,12 @@ static void tcp_process_synsent(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr, 
 			tcp_send_ctrlseg(tcb->iss, tcb->recv_next_seq, 0, TH_SYN|TH_ACK, make_tcpopt(true, MSS), iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport), true, tcb);
 			tcb->recv_ack_counter++;
 		}else{
+			tcb->send_window = ntoh16(thdr->th_win);
+			tcb->send_wl1 = ntoh32(thdr->th_seq);
+			tcb->send_wl2 = ntoh32(thdr->th_ack);
 			tcb_alloc_buf(tcb);
 			tcb->state = TCP_STATE_ESTABLISHED;
-			tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, 0, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport), false, NULL);
+			tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport), false, NULL);
 			tcb->recv_ack_counter++;
 			if(tcb->establish_waiting) wup_tsk(tcb->ownertsk);
 		}
@@ -692,7 +697,7 @@ static void tcp_arrival_add(tcp_ctrlblock *tcb, uint32_t start_seq, uint32_t end
 		}
 		if(is_remove){
 			tcp_arrival *temp = *pp;
-			pp = &((*pp)->next);
+			*pp = (*pp)->next;
 			delete temp;
 		}
 	}
@@ -705,6 +710,7 @@ static void tcp_arrival_add(tcp_ctrlblock *tcb, uint32_t start_seq, uint32_t end
 static uint32_t tcp_arrival_handover(tcp_ctrlblock *tcb){
 	tcp_arrival **pp = &(tcb->arrival_list);
 	while((*pp)!=NULL){
+		LOG("recv_next_seq=%u, start=%u, end=%u", tcb->recv_next_seq, (*pp)->start_seq, (*pp)->end_seq);
         if(tcb->recv_next_seq == (*pp)->start_seq){
 			uint32_t len = (*pp)->end_seq - (*pp)->start_seq + 1;
 			tcb->recv_next = MOD(tcb->recv_next+len, STREAM_RECV_BUF);
@@ -712,11 +718,12 @@ static uint32_t tcp_arrival_handover(tcp_ctrlblock *tcb){
 			tcb->recv_window -= len;
 			//削除
 			tcp_arrival *temp = *pp;
-			pp = &((*pp)->next);
+			*pp = (*pp)->next;
 			delete temp;
 			return len;
         }
 	}
+	LOG("---");
 	return 0;
 }
 
@@ -725,13 +732,16 @@ static void tcp_write_to_recvbuf(tcp_ctrlblock *tcb, char *data, uint32_t len, u
 	uint32_t end_index, end_seq = start_seq-1;
 
 	uint32_t recvbuf_limit = (tcb->recv_next+tcb->recv_window)%STREAM_RECV_BUF;
+	recvbuf_limit = RECVBUF_INDEX_DECREMENT(recvbuf_limit);
 	uint32_t i,j;
 	char *ptr;
-	for(i=start_index, j=len, ptr=data; j>0&&i!=recvbuf_limit; i=MOD(i+1, STREAM_RECV_BUF), j--, end_seq++){
+	for(i=start_index, j=len, ptr=data; j>0; i=MOD(i+1, STREAM_RECV_BUF), j--, end_seq++){
 		tcb->recv_buf[i] = *ptr++;
+		if(i==recvbuf_limit)
+			break;
 	}
-	end_index = i==0?STREAM_RECV_BUF-1:i-1; //負数になるのを防止
-
+	end_index = RECVBUF_INDEX_DECREMENT(i);
+LOG("len=%u, start_seq=%u, end_seq=%u", len, start_seq, end_seq);
 	tcp_arrival_add(tcb, start_seq, end_seq);
 	if(tcb->recv_next == start_index){
 		tcp_arrival_handover(tcb);
@@ -866,7 +876,8 @@ static void tcp_send_from_buf(tcp_ctrlblock *tcb){
 	}
 
 sendfin:
-	if(tcb->myfin_requested && tcb->myfin_seq == tcb->send_next_seq){
+	if(tcb->myfin_state == FIN_REQUESTED){
+		tcb->myfin_state = FIN_SENT;
 		tcb->myfin_seq = tcb->send_next_seq;
 		tcb->send_next_seq++;
 		tcb->send_next = (tcb->send_next+1)%STREAM_SEND_BUF;
@@ -881,8 +892,15 @@ sendfin:
 	return;
 }
 
-static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32_t end_index,
-								 uint32_t start_seq, uint32_t end_seq, uint8_t flags, bool has_mss, bool is_zwp){
+static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, tcp_timer_option *opt){
+	uint32_t start_index = opt->option.resend.start_index;
+	uint32_t end_index = opt->option.resend.end_index;
+	uint32_t start_seq = opt->option.resend.start_seq;
+	uint32_t end_seq = opt->option.resend.end_seq;
+	uint8_t flags = opt->option.resend.flags;
+	bool has_mss = opt->option.resend.has_mss;
+	bool is_zwp = opt->option.resend.is_zerownd_probe;
+
 	//LOG("resend start...");
 	uint32_t send_start = start_index, send_last = end_index;
 	uint32_t send_next_seq = start_seq, send_next = start_index;
@@ -892,16 +910,19 @@ static bool tcp_resend_from_buf(tcp_ctrlblock *tcb, uint32_t start_index, uint32
 		//ゼロウィンドウ・プローブ
 		remaining = 1;
 	}else{
-		if(!between_le_le(tcb->send_unack_seq, end_seq, MOD(tcb->send_unack_seq+tcb->send_used_len-1, STREAM_SEND_BUF))){
+		if(!between_le_le(tcb->send_unack_seq, start_seq, tcb->send_unack_seq+tcb->send_window-1)){
 			//LOG("no resend");
 			return false; //送信可能なものはない
 		}
 
 		//send_ctrlsegで送ったものか（データ無し）
 		if(start_seq == end_seq){
-			tcp_send_ctrlseg(start_seq, tcb->recv_next_seq, tcb->recv_window, flags, has_mss?make_tcpopt(true, MSS):NULL, tcb->addr.partner_addr, tcb->addr.partner_port, tcb->addr.my_port, false, NULL);
+			tcp_send_ctrlseg(start_seq, tcb->recv_next_seq, tcb->recv_window, flags, has_mss?make_tcpopt(true, MSS):NULL,
+							opt->option.resend.addr.partner_addr, opt->option.resend.addr.partner_port, opt->option.resend.addr.my_port, false, NULL);
 			if(flags & TH_ACK)
 				tcb->recv_ack_counter++;
+			LOG("ctrlseg_resend!(start_seq=%u, ACK=%d, SYN=%d, state=%d, port=%d)",
+				 start_seq, flags&TH_ACK, flags&TH_SYN, tcb->state, opt->option.resend.addr.partner_port);
 			return true;
 		}
 
@@ -1062,7 +1083,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 			if(tcb->opentype == PASSIVE){
 				tcb->state = TCP_STATE_LISTEN;
 			}else{
-				tcb->state = TCP_STATE_CLOSED;
+				tcb_reset(tcb);
 				tcb->errno = ECONNREFUSED;
 				if(tcb->establish_waiting) wup_tsk(tcb->ownertsk);
 			}
@@ -1160,8 +1181,9 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 				}
 			}
 			if(tcb->state == TCP_STATE_FIN_WAIT_1){
-				if(tcb->myfin_requested && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
+				if(tcb->myfin_state== FIN_ACKED || (tcb->myfin_state == FIN_SENT && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq)){
 					tcb->state = TCP_STATE_FIN_WAIT_2;
+					tcb->myfin_state = FIN_ACKED;
 				}
 			}
 			/*if(tcb->state == TCP_STATE_FIN_WAIT_2){
@@ -1170,17 +1192,16 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 				}
 			}*/
 			if(tcb->state == TCP_STATE_CLOSING){
-				if(tcb->myfin_requested && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
+				if(tcb->myfin_state== FIN_ACKED || (tcb->myfin_state == FIN_SENT && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq)){
 					tcb->state = TCP_STATE_TIME_WAIT;
+					tcb->myfin_state = FIN_ACKED;
 				}else{
 					goto exit;
 				}
 			}
 			break;
 		case TCP_STATE_LAST_ACK:
-			if(tcb->myfin_requested && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
-				//LOG("last_ack...acked");
-				tcb->send_unack_seq = ntoh32(thdr->th_ack);
+			if(tcb->myfin_state== FIN_ACKED || (tcb->myfin_state == FIN_SENT && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq)){
 				tcb_reset(tcb);
 				goto exit;
 			}
@@ -1226,7 +1247,8 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 		*/
 
 		tcb->recv_fin_seq = ntoh32(thdr->th_seq);
-		tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport), false, NULL);
+		tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq+1/*FINのシーケンス番号も含めて確認応答しないといけない*/,
+						 tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport), false, NULL);
 		tcb->recv_ack_counter++;
 
 		switch(tcb->state){
@@ -1237,8 +1259,9 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 				wup_tsk(tcb->ownertsk);
 			break;
 		case TCP_STATE_FIN_WAIT_1:
-			if(tcb->myfin_requested && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq){
+			if(tcb->myfin_state== FIN_ACKED || (tcb->myfin_state == FIN_SENT && ntoh32(thdr->th_ack)-1 == tcb->myfin_seq)){
 				tcb->state = TCP_STATE_TIME_WAIT;
+				tcb->myfin_state = FIN_ACKED;
 				tcp_timer_remove_all(tcb);
 				tcp_timer_add(tcb, TCP_TIMEWAIT_TIME, TCP_TIMER_TYPE_TIMEWAIT, NULL);
 			}else{
@@ -1246,6 +1269,7 @@ static void tcp_process_otherwise(ether_flame *flm, ip_hdr *iphdr, tcp_hdr *thdr
 			}
 			break;
 		case TCP_STATE_FIN_WAIT_2:
+			LOG("TIMEWAIT start...");
 			tcb->state = TCP_STATE_TIME_WAIT;
 			tcp_timer_remove_all(tcb);
 			tcp_timer_add(tcb, TCP_TIMEWAIT_TIME, TCP_TIMER_TYPE_TIMEWAIT, NULL);
@@ -1265,7 +1289,7 @@ cantrecv:
 	//ACK送信
 	if(!(thdr->th_flags & TH_RST)){
 		tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL, iphdr->ip_src, ntoh16(thdr->th_sport), ntoh16(thdr->th_dport), false, NULL);
-
+		LOG("outof window ack(state=%d, port=%d)", tcb->state, tcb->addr.partner_port);
 		tcb->recv_ack_counter++;
 	}
 exit:
@@ -1473,7 +1497,8 @@ retry:
 				pending->send_unack_seq = pending->iss;
 				pending->send_unack = 0;
 
-				tcp_send_ctrlseg(pending->iss, pending->recv_next_seq, STREAM_RECV_BUF, TH_SYN|TH_ACK, make_tcpopt(true, MSS), pending->addr.partner_addr, pending->addr.partner_port, tcb->addr.my_port, true, tcb);
+				tcp_send_ctrlseg(pending->iss, pending->recv_next_seq, STREAM_RECV_BUF, TH_SYN|TH_ACK, make_tcpopt(true, MSS),
+									 pending->addr.partner_addr, pending->addr.partner_port, tcb->addr.my_port, true, tcb);
 				LOG("SYNACK sent.");
 
 				tcb->recv_ack_counter++;
@@ -1621,12 +1646,12 @@ int tcp_close(tcp_ctrlblock *tcb){
 		tcb_reset(tcb);
 		break;
 	case TCP_STATE_SYN_RCVD:
-		tcb->myfin_requested = true;
+		tcb->myfin_state = FIN_REQUESTED;
 		tcb->state = TCP_STATE_FIN_WAIT_1;
 		wup_tsk(TCP_SEND_TASK);
 		break;
 	case TCP_STATE_ESTABLISHED:
-		tcb->myfin_requested = true;
+		tcb->myfin_state = FIN_REQUESTED;
 		tcb->state = TCP_STATE_FIN_WAIT_1;
 		wup_tsk(TCP_SEND_TASK);
 		break;
@@ -1635,7 +1660,7 @@ int tcp_close(tcp_ctrlblock *tcb){
 		result = ECONNCLOSING;
 		break;
 	case TCP_STATE_CLOSE_WAIT:
-		tcb->myfin_requested = true;
+		tcb->myfin_state = FIN_REQUESTED;
 		tcp_timer_add(tcb, TCP_FINWAIT_TIME, TCP_TIMER_TYPE_FINACK, NULL);
 		wup_tsk(TCP_SEND_TASK);
 		break;
@@ -1674,19 +1699,13 @@ void tcp_timer_task(intptr_t exinf) {
 					delete tcptimer->option;
 				break;
 			case TCP_TIMER_TYPE_RESEND:
-				if(tcp_resend_from_buf(tcptimer->tcb, tcptimer->option->option.resend.start_index,
-														 tcptimer->option->option.resend.end_index,
-														 tcptimer->option->option.resend.start_seq,
-														 tcptimer->option->option.resend.end_seq,
-														 tcptimer->option->option.resend.flags,
-														 tcptimer->option->option.resend.has_mss,
-														 tcptimer->option->option.resend.is_zerownd_probe)){
+				if(tcp_resend_from_buf(tcptimer->tcb, tcptimer->option)){
 					if(tcptimer->option->option.resend.is_zerownd_probe){
 						//ゼロウィンドウ・プローブ（持続タイマ）
 						tcp_ctrlblock *tcb = tcptimer->tcb;
 						if(tcb->send_window == 0){
 							LOG("persist timer restart");
-							tcp_timer_add_locked(tcptimer->tcb, MIN(tcptimer->msec*2, TCP_PERSIST_WAIT_MAX), TCP_TIMER_TYPE_RESEND, tcptimer->option);
+							tcp_timer_add(tcptimer->tcb, MIN(tcptimer->msec*2, TCP_PERSIST_WAIT_MAX), TCP_TIMER_TYPE_RESEND, tcptimer->option);
 						}else{
 							tcb->send_persisttim_enabled = false;
 						}
@@ -1699,7 +1718,7 @@ void tcp_timer_task(intptr_t exinf) {
 							tcb_reset(tcb);
 						}else{
 							LOG("resend timer restart");
-							tcp_timer_add_locked(tcptimer->tcb, tcptimer->msec*2, TCP_TIMER_TYPE_RESEND, tcptimer->option);
+							tcp_timer_add(tcptimer->tcb, tcptimer->msec*2, TCP_TIMER_TYPE_RESEND, tcptimer->option);
 						}
 					}
 				}
@@ -1714,7 +1733,7 @@ void tcp_timer_task(intptr_t exinf) {
 					tcp_ctrlblock *tcb = tcptimer->tcb;
 					//LOG("delay ack...%u/%u/%u",tcb->recv_lastack_seq, tcptimer->option->option.delayack.seq,tcb->recv_next_seq);
 					if(tcb->recv_ack_counter == tcptimer->option->option.delayack.seq){
-						//LOG("[[delay ack]]");
+						LOG("[[delay ack]]");
 						tcp_send_ctrlseg(tcb->send_next_seq, tcb->recv_next_seq, tcb->recv_window, TH_ACK, NULL,
 											tcb->addr.partner_addr, tcb->addr.partner_port, tcb->addr.my_port, false, NULL);
 						tcb->recv_ack_counter++;
