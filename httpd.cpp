@@ -101,7 +101,7 @@ void httpd_task(intptr_t exinf){
 			continue;
 		}
 
-		if(recv(s2, buf, sizeof(buf), 0, TIMEOUT_NOTUSE)>0){
+		if(recv(s2, buf, sizeof(buf), 0, 1000)>0){
 			char *method = strtok(buf, " ");
 			if(strncmp(method, "GET", 3) == 0){
 				char *path = strtok(NULL, " ");
