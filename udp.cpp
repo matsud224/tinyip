@@ -44,17 +44,14 @@ static uint16_t udp_checksum(ip_hdr *iphdr, udp_hdr *uhdr){
 void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 	//ブロードキャスト/マルチキャストアドレスは不許可
 	/*if(memcmp(iphdr->ip_dst, IPADDR, IP_ADDR_LEN) != 0){
-		LOG("udp packet discarded(bad address).");
 		goto exit;
 	}*/
 	//ヘッダ検査
 	if(flm->size < sizeof(ether_hdr)+(iphdr->ip_hl*4)+sizeof(udp_hdr) ||
 		flm->size != sizeof(ether_hdr)+(iphdr->ip_hl*4)+ntoh16(uhdr->uh_ulen)){
-		LOG("udp packet discarded(length error).");
 		goto exit;
 	}
 	if(uhdr->sum != 0 && udp_checksum(iphdr, uhdr) != 0){
-		LOG("udp packet discarded(checksum error).");
 		goto exit;
 	}
 
@@ -85,7 +82,7 @@ void udp_process(ether_flame *flm, ip_hdr *iphdr, udp_hdr *uhdr){
 		ucb->recv_back++;
 		if(ucb->recv_back == DGRAM_RECV_QUEUE) ucb->recv_back=0;
 	}
-	//LOG("received udp datagram (queue %d/%d)", sock->recv_front, sock->recv_back);
+
 	if(ucb->recv_waiting) wup_tsk(sock->ownertsk);
 	sig_sem(UDP_RECV_SEM);
 
@@ -148,7 +145,6 @@ int32_t udp_recvfrom(udp_ctrlblock *ucb, char *buf, uint32_t len, int flags, uin
 	while(true){
 		if(ucb->recv_front==ucb->recv_back){
 			sig_sem(UDP_RECV_SEM);
-			//LOG("user task zzz...");
             if(tslp_tsk(timeout) == E_TMOUT){
 				wai_sem(UDP_RECV_SEM);
 				ucb->recv_waiting = false;
@@ -166,7 +162,7 @@ int32_t udp_recvfrom(udp_ctrlblock *ucb, char *buf, uint32_t len, int flags, uin
 			sig_sem(UDP_RECV_SEM);
 			return MIN(len,datalen);
 		}
-		//LOG("retry...");
+
 		wai_sem(UDP_RECV_SEM);
 	}
 }

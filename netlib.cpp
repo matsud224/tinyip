@@ -119,7 +119,6 @@ int sendto(int s, const char *msg, uint32_t len, int flags, uint8_t to_addr[], u
 	}
 	switch(sockets[s].type){
 	case SOCK_DGRAM:
-		LOG("udp: send to %s", ipaddr2str(to_addr));
 		return udp_sendto(msg, len, flags, to_addr, to_port, sockets[s].addr.my_port);
 	default:
 		return EBADF;
@@ -139,7 +138,7 @@ int recvfrom(int s, char *buf, uint32_t len, int flags, uint8_t from_addr[], uin
 }
 
 int connect(int s, uint8_t to_addr[], uint16_t to_port, TMO timeout){
-	if(bind(s, 0) == 0){
+	if(sockets[s].addr.my_port==0 && bind(s, 0) != 0){
 		return EAGAIN;
 	}
 	switch(sockets[s].type){
@@ -151,9 +150,9 @@ int connect(int s, uint8_t to_addr[], uint16_t to_port, TMO timeout){
 		if(sockets[s].ctrlblock.tcb == NULL){
 			sockets[s].ctrlblock.tcb = tcb_new();
 		}
-		tcb_setaddr_and_owner(sockets[s].ctrlblock.tcb, &(sockets[s].addr), sockets[s].ownertsk);
 		memcpy(sockets[s].addr.partner_addr, to_addr, IP_ADDR_LEN);
 		sockets[s].addr.partner_port = to_port;
+		tcb_setaddr_and_owner(sockets[s].ctrlblock.tcb, &(sockets[s].addr), sockets[s].ownertsk);
 		return tcp_connect(sockets[s].ctrlblock.tcb, timeout);
 	default:
 		return EBADF;
@@ -192,7 +191,7 @@ static int accepted_tcb_to_socket(tcp_ctrlblock *listening_tcb, uint8_t client_a
 	sig_sem(SOCKTBL_SEM);
 
 	tcp_ctrlblock *accepted = tcp_accept(listening_tcb, client_addr, client_port, timeout);
-LOG("accepted");
+
 	wai_sem(SOCKTBL_SEM);
 	if(accepted == NULL){
 		sockets[i].type = SOCK_UNUSED;
@@ -212,7 +211,6 @@ LOG("accepted");
 
 int accept(int s, uint8_t client_addr[], uint16_t *client_port, TMO timeout){
 	int result;
-	LOG("---ACCEPT---");
 	switch(sockets[s].type){
 	case SOCK_STREAM:
 		result = accepted_tcb_to_socket(sockets[s].ctrlblock.tcb, client_addr, client_port, timeout);

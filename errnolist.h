@@ -10,3 +10,4 @@
 #define ENOTLISITENING -8
 #define ECONNRESET -9
 #define ECONNREFUSED -10
+#define EFAIL -11

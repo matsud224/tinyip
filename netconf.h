@@ -3,7 +3,8 @@
 #include <stdint.h>
 #include "protohdr.h"
 
-//#define USE_DHCP
+#define USE_DHCP
+#define USE_SNTP
 
 #define MTU 1500
 #define MSS (MTU-40)

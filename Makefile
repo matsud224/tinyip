@@ -6,6 +6,8 @@ all:
 #
 #  Application file
 #
+APPLDIR += ../../wolfssl-3.9.10/
+LIBS += /usr/local/lib/libwolfssl.a
 APPLNAME = tinyip
 APPL_CXXOBJS = ethernet.o ip.o arp.o icmp.o udp.o tcp.o util.o morse.o netconf.o netlib.o sntpclient.o httpd.o ftpd.o dhclient.o nameresolver.o
 USE_CXX = true
@@ -41,7 +43,6 @@ include $(MBED_LIB_DIR)/Makefile.mbd
 #
 KERNEL_LIB = .
 include $(SRCDIR)/Makefile.asp
-
 
 install:
 	cp asp.bin /media/daiki/MBED

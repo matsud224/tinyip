@@ -13,6 +13,7 @@
 #include "envdep.h"
 #include "protohdr.h"
 
+extern const char* MSG;
 
 #define LOG(...) syslog(LOG_NOTICE, __VA_ARGS__)
 
@@ -57,6 +58,7 @@ void redled_on(void);
 #endif // LITTLE_ENDIAN
 
 #define IPADDR_TO_UINT32(val) (*((uint32_t*)(val)))
+
 
 char *macaddr2str(uint8_t ma[]);
 char *ipaddr2str(uint8_t ia[]);

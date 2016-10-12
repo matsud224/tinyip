@@ -10,7 +10,7 @@
 
 #define HTTP_BUF_LEN 1024
 
-SDFileSystem sd(P8_5, P8_6, P8_3, P8_4, "sd");
+//SDFileSystem sd(P8_5, P8_6, P8_3, P8_4, "sd");
 
 struct content_type_entry{
 	const char *extension;
@@ -38,6 +38,10 @@ static content_type_entry content_type_dict[] = {
 	{"mp4", "audio/mp4"},
 	{NULL, "text/plain"}, //該当しないものはテキストとして送る
 };
+
+void start_httpd(){
+	act_tsk(HTTPD_TASK);
+}
 
 static const char *get_content_type(const char *extension){
 	content_type_entry *ptr = content_type_dict;
@@ -67,12 +71,10 @@ static int http_respond(int s, const char *st_code_str, const char *cont_str, co
 		int readlen;
 		while((readlen = fread(buf, 1, HTTP_BUF_LEN, fp)) > 0)
 			if(send(s, buf, readlen, 0, TIMEOUT_NOTUSE)<0){
-				//LOG("send error");
 				break;
 			}
 	}
 	fclose(fp);
-	//LOG("--sent--");
 
 	return 0;
 }
@@ -109,7 +111,7 @@ void httpd_task(intptr_t exinf){
 					path = "/index.html";
 				}
 				sprintf(path_buf, "%s%s", DOCUMENT_ROOT, path+1);
-				LOG("httpd: method:%s, path:%s", method, path_buf);
+				//LOG("httpd: method:%s, path:%s", method, path_buf);
 				FILE *fp = fopen(path_buf, "rb"); //pathに1加えることで先頭の/を取り除く
 				if(fp == NULL){
 					sprintf(path_buf, "%s%s", ERROR_ROOT, "404.html");

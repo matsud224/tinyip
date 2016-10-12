@@ -25,7 +25,7 @@
 #endif /* USER_TASK_PRI */
 
 #ifndef USER_TASK_STACK_SIZE
-#define USER_TASK_STACK_SIZE 1024
+#define USER_TASK_STACK_SIZE (1024*32)
 #endif  /* USER_TASK_STACK_SIZE */
 
 #ifndef ETHERRECV_TASK_PRI
@@ -84,6 +84,14 @@
 #define DHCLIENT_TASK_STACK_SIZE 4096
 #endif  /* DHCLIENT_TASK_STACK_SIZE */
 
+#ifndef SNTPCLIENT_TASK_PRI
+#define SNTPCLIENT_TASK_PRI  5
+#endif /* SNTPCLIENT_TASK_PRI */
+
+#ifndef SNTPCLIENT_STACK_SIZE
+#define SNTPCLIENT_TASK_STACK_SIZE 1024
+#endif  /* SNTPCLIENT_TASK_STACK_SIZE */
+
 /*
  *  Definition of memory size for RTOS
  *
@@ -119,6 +127,8 @@ extern void httpd_task(intptr_t exinf);
 extern void morse_task(intptr_t exinf);
 extern void dhclient_task(intptr_t exinf);
 extern void dhclient_alarm_handler(intptr_t exinf);
+extern void sntpclient_task(intptr_t exinf);
+
 
 #ifdef __cplusplus
 }

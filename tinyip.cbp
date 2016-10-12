@@ -55,6 +55,7 @@
 			<Option target="clean" />
 		</Unit>
 		<Unit filename="dhclient.cpp" />
+		<Unit filename="dhclient.h" />
 		<Unit filename="envdep.h" />
 		<Unit filename="errnolist.h" />
 		<Unit filename="ethernet.cpp">
@@ -72,6 +73,7 @@
 		</Unit>
 		<Unit filename="ftpd.cpp" />
 		<Unit filename="httpd.cpp" />
+		<Unit filename="httpd.h" />
 		<Unit filename="icmp.cpp">
 			<Option compilerVar="CC" />
 			<Option target="all" />

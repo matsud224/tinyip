@@ -1,0 +1,39 @@
+・wolfsslのクロスコンパイル(host=ARM)
+　Makefile.amの以下の3行をコメントアウト
+　  include examples/include.am
+    include testsuite/include.am
+    include tests/include.am
+    
+  configure.acの15行目付近、CFLAGS=の後ろにオプションを書く
+    : ${CFLAGS="--specs=nosys.specs"}
+    
+  wolfssl/wolfcrypt/settings.h
+    #define MBED のコメント化解除
+    #define WOLFSSL_CMSIS_RTOS をコメントアウト
+    #define NO_DH をコメントアウト
+    #define HAVE_ECC をコメントアウト
+
+  m4/ax_harden_compiler_flags.m4
+    AX_APPEND_COMPILE_FLAGS([-fPIE],,[$ax_append_compile_cflags_extra])をコメントアウト
+  
+  ファイルシステムを使えるようにする
+  　#define NO_FILESYSTEMをコメントアウト
+  	/usr/local/gcc-arm-none-eabi-4_9-2015q3/arm-none-eabi/include/sys/dirent.hにmbedの定義と同じものを書いておく。
+  	#define NAME_MAX 255
+	struct dirent {
+		char d_name[NAME_MAX+1];
+	};
+
+	typedef struct dirent DIR;
+
+	int            closedir(DIR *);
+	DIR           *opendir(const char *);
+	struct dirent *readdir(DIR *);
+	int            readdir_r(DIR *, struct dirent *, struct dirent **);
+	void           rewinddir(DIR *);
+	void           seekdir(DIR *, long int);
+	long int       telldir(DIR *);
+
+　ARMのクロスコンパイラ(arm-none-eabi)が /usr/local に既にインストールされているとする。
+    $ make clean && ./configure --host=arm-none-eabi --enable-static --disable-shared --enable-crypttests=disabled --enable-ecc  CC=/usr/local/gcc-arm-none-eabi-4_9-2015q3/bin/arm-none-eabi-gcc AR=/usr/local/gcc-arm-none-eabi-4_9-2015q3/bin/arm-none-eabi-gcc-ar RANLIB=/usr/local/gcc-arm-none-eabi-4_9-2015q3/bin/arm-none-eabi-gcc-ranlib LD=/usr/local/gcc-arm-none-eabi-4_9-2015q3/bin/arm-none-eabi-gcc-ld NM=/usr/local/gcc-arm-none-eabi-4_9-2015q3/bin/arm-none-eabi-gcc-nm CFLAGS="--specs=nosys.specs -mcpu=cortex-a9 -mthumb -mthumb-interwork -marm -march=armv7-a -mfpu=vfpv3 -mfloat-abi=hard -mno-unaligned-access -g -fno-common -fmessage-length=0 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -fno-exceptions -fno-builtin -ffunction-sections -fdata-sections -fno-delete-null-pointer-checks -fomit-frame-pointer -MMD -MP" LDFLAGS="-mcpu=cortex-a9 -mthumb -mthumb-interwork -marm -march=armv7-a -mfpu=vfpv3 -mfloat-abi=hard -mno-unaligned-access -Wl,--gc-sections -nostartfiles -u _printf_float -u _scanf_float" && make && sudo make install
+　  ＜/usr/local/lib/にlibwolfssl.aがインストールされる＞

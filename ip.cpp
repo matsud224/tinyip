@@ -72,6 +72,12 @@ struct reasminfo{
 
 reasminfo *reasm_ongoing = NULL;
 
+void start_ip(){
+	act_tsk(ETHERRECV_TASK);
+	act_tsk(TIMEOUT_10SEC_TASK);
+	sta_cyc(TIMEOUT_10SEC_CYC);
+}
+
 void timeout_10sec_task(intptr_t exinf) {
 	//10sec周期で動き、タイムアウトを管理するタスク
 	while(true){
@@ -91,20 +97,19 @@ void timeout_10sec_task(intptr_t exinf) {
 		//ARPテーブル
 		wai_sem(ARPTBL_SEM);
 		for(int i=0; i<MAX_ARPTABLE; i++){
-			if(arptable[i].timeout>0){
+			if(arptable[i].timeout>0 && arptable[i].timeout!=ARPTBL_PERMANENT){
 				arptable[i].timeout--;
-				if(arptable[i].timeout == 0){
-					//LOG("ARP entry: time out!");
-					if(arptable[i].pending!=NULL){
-						delete arptable[i].pending;
-						arptable[i].pending = NULL;
-					}
-				}else{
-					if(arptable[i].pending!=NULL){
-						ether_flame *request = make_arprequest_flame((uint8_t*)(&arptable[i].ipaddr));
-						ethernet_send(request);
-						delete request;
-					}
+			}
+			if(arptable[i].timeout == 0){
+				if(arptable[i].pending!=NULL){
+					delete arptable[i].pending;
+					arptable[i].pending = NULL;
+				}
+			}else{
+				if(arptable[i].pending!=NULL){
+					ether_flame *request = make_arprequest_flame((uint8_t*)(&arptable[i].ipaddr));
+					ethernet_send(request);
+					delete request;
 				}
 			}
 		}
@@ -173,24 +178,19 @@ static void modify_inf_holelist(hole **holepp, uint16_t newsize){
 void ip_process(ether_flame *flm, ip_hdr *iphdr){
 	//正しいヘッダかチェック
 	if(flm->size < sizeof(ether_hdr)+sizeof(ip_hdr)){
-		LOG("broken ip packet(length_1)");
 		goto exit;
 	}
 	if(flm->size < sizeof(ether_hdr)+ntoh16(iphdr->ip_len) ){
 		//Ethernetパディングも考慮
-		LOG("broken ip packet(length_2) : %d/%d", flm->size, sizeof(ether_hdr)+ntoh16(iphdr->ip_len));
 		goto exit;
 	}
 	if(iphdr->ip_v != 4 ){
-		LOG("broken ip packet(version)");
 		goto exit;
 	}
 	if(iphdr->ip_hl < 5){
-		LOG("broken ip packet(hl<5)");
 		goto exit;
 	}
 	if(checksum((uint16_t*)iphdr, iphdr->ip_hl*4) != 0 ){
-		LOG("broken ip packet(checksum)");
 		goto exit;
 	}
 	//自分宛てかチェック
@@ -200,7 +200,6 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 					mask=ntoh32(*(uint32_t*)NETMASK),broad;
 		broad = hton32((addr & mask) | (~(mask)));
 		if(memcmp(iphdr->ip_dst, &broad, IP_ADDR_LEN) != 0){
-			LOG("ipaddress invalid...");
 			goto exit;
 		}
 	}
@@ -275,7 +274,6 @@ void ip_process(ether_flame *flm, ip_hdr *iphdr){
 			char *origin = flm->buf + info->headerlen;
 			int total=0;
             for(fragment *fptr=info->fragmentlist;fptr!=NULL;fptr=fptr->next){
-				//LOG("frag %d/%d %02X",fptr->first,fptr->last,*(((uint8_t*)(fptr->flm->buf))+info->headerlen));
 				memcpy(origin+fptr->first,((uint8_t*)(fptr->flm->buf))+info->headerlen,fptr->last-fptr->first+1);
 				total+=fptr->last-fptr->first+1;
             }

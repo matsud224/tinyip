@@ -45,7 +45,6 @@ void icmp_process(ether_flame *flm, ip_hdr *iphdr, icmp *icmpdata){
 
 	switch(icmpdata->icmp_type){
 	case ICMP_ECHO:
-		//LOG("ICMP ECHO: recieved");
 		make_icmp_echoreply(flm, iphdr, icmpdata);
 		ethernet_send(flm);
 		break;

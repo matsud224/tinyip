@@ -8,6 +8,7 @@
 #include "errnolist.h"
 #include "netconf.h"
 #include "netlib.h"
+#include "dhclient.h"
 
 struct dhcp_msg{
 	uint8_t op;
@@ -92,6 +93,10 @@ static TextLCD lcd(D0, D1, D2, D3, D4, D5);
 void dhclient_alarm_start(uint32_t time);
 void dhclient_alarm_restart(void);
 void dhclient_alarm_stop(void);
+
+void start_dhclient(){
+	act_tsk(DHCLIENT_TASK);
+}
 
 static uint32_t get_xid(){
 	SYSTIM tim;
@@ -223,7 +228,8 @@ static uint32_t make_dhcpmsg(char buf[], int buflen, int msgtype, uint8_t reques
 		break;
 	case DHCP_MSGTYPE_REQUEST:
 		make_dhcpmsg_header(buf, buflen, (xid=get_xid()), request_addr);
-		make_dhcpmsg_option(buf+sizeof(dhcp_msg), DHCP_MSGTYPE_REQUEST, request_addr, server_addr, paramreq_list, sizeof(paramreq_list));
+		make_dhcpmsg_option(buf+sizeof(dhcp_msg), DHCP_MSGTYPE_REQUEST,
+							 request_addr, server_addr, paramreq_list, sizeof(paramreq_list));
 		break;
 	case DHCP_MSGTYPE_RELEASE:
 		make_dhcpmsg_header(buf, buflen, (xid=get_xid()), request_addr);
@@ -297,10 +303,10 @@ int dhcpmsg_analyze(char buf[], int len, uint8_t *client_addr, uint8_t *server_a
 }
 
 void clear_config(){
-	memset(DEFAULT_GATEWAY, 0, IP_ADDR_LEN);
-	memset(DNSSERVER, 0, IP_ADDR_LEN);
-	memset(NETMASK, 0, IP_ADDR_LEN);
-	memset(NTPSERVER, 0, IP_ADDR_LEN);
+	//memset(DEFAULT_GATEWAY, 0, IP_ADDR_LEN);
+	//memset(DNSSERVER, 0, IP_ADDR_LEN);
+	//memset(NETMASK, 0, IP_ADDR_LEN);
+	//memset(NTPSERVER, 0, IP_ADDR_LEN);
 	memset(IPADDR, 0, IP_ADDR_LEN);
 }
 
@@ -308,13 +314,26 @@ static void dhclient_bound_event(){
 	lcd.cls(); lcd.printf("%s", ipaddr2str(IPADDR));
 }
 
+static bool is_zeroaddr(uint8_t addr[]){
+	for(int i=0; i<IP_ADDR_LEN; i++)
+		if(addr[i] != 0) return false;
+	return true;
+}
+
+static void setconf(dhcp_options *opts){
+	if(!is_zeroaddr(opts->defaultgw)) memcpy(DEFAULT_GATEWAY, opts->defaultgw, IP_ADDR_LEN);
+	if(!is_zeroaddr(opts->dnsserver)) memcpy(DNSSERVER, opts->dnsserver, IP_ADDR_LEN);
+	if(!is_zeroaddr(opts->subnetmask)) memcpy(NETMASK, opts->subnetmask, IP_ADDR_LEN);
+	if(!is_zeroaddr(opts->ntpserver)) memcpy(NTPSERVER, opts->ntpserver, IP_ADDR_LEN);
+}
+
 void dhclient_task(intptr_t exinf){
-	lcd.cls(); lcd.printf("DHCP client start...");
 	clear_config();
 	SYSTIM tim; get_tim(&tim);
 	dhclient_start_time = tim;
 
 	int state = DHCLIENT_STATE_INIT;
+	clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_INIT);
 
 	int buflen = sizeof(dhcp_msg) + 314;
 	char *buf = new char[buflen];
@@ -333,29 +352,29 @@ void dhclient_task(intptr_t exinf){
 	while(true){
 		switch(state){
 		case DHCLIENT_STATE_INIT:
-			LOG("dhclient: state=init");
 			xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_DISCOVER, NULL, NULL);
 			result=dhcpmsg_send_and_wait_reply(sock, buf, buflen, xid, IPBROADCAST, false);
 			state = DHCLIENT_STATE_SELECTING;
+			clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_SELECTING);
 			break;
 		case DHCLIENT_STATE_SELECTING:
-			LOG("dhclient: state=selecting");
 			int val;
 			if((val=dhcpmsg_analyze(buf, result, client_addr, server_addr, &opts)) == DHCP_MSGTYPE_OFFER){
 				xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_REQUEST, client_addr, server_addr);
 				result=dhcpmsg_send_and_wait_reply(sock, buf, buflen, xid, IPBROADCAST, false);
 				state = DHCLIENT_STATE_REQUESTING;
+				clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_REQUESTING);
 			}else{
-				LOG("offer timeout %d/result=%d" ,val, result);
 				state = DHCLIENT_STATE_INIT;
+				clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_INIT);
 			}
 			break;
 		case DHCLIENT_STATE_REQUESTING:
-			LOG("dhclient: state=requesting");
 			if(result == ETIMEOUT){
 				make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_DECLINE, client_addr, server_addr);
 				dhcpmsg_send(sock, buf, buflen, server_addr);
 				state = DHCLIENT_STATE_INIT;
+				clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_INIT);
 			}else{
 				switch(dhcpmsg_analyze(buf, result, client_addr, server_addr, &opts)){
 				case DHCP_MSGTYPE_ACK:
@@ -364,17 +383,16 @@ void dhclient_task(intptr_t exinf){
 					t2 = opts.rebindtime;
 					if(!t1) t1 = lease/2;
 					if(!t2) t2 = lease*0.8;
-					LOG("t1=%u, t2=%u, lease=%u", t1,t2,lease);
-					memcpy(DEFAULT_GATEWAY, opts.defaultgw, IP_ADDR_LEN);
-					memcpy(DNSSERVER, opts.dnsserver, IP_ADDR_LEN);
-					memcpy(NETMASK, opts.subnetmask, IP_ADDR_LEN);
-					memcpy(NTPSERVER, opts.ntpserver, IP_ADDR_LEN);
+
+					setconf(&opts);
 					memcpy(IPADDR, client_addr, IP_ADDR_LEN);
 					state = DHCLIENT_STATE_BOUND;
+					clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_BOUND);
 					dhclient_bound_event();
 					break;
 				case DHCP_MSGTYPE_NAK:
 					state = DHCLIENT_STATE_INIT;
+					clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_INIT);
 					break;
 				default:
 					xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_REQUEST, client_addr, server_addr);
@@ -384,20 +402,20 @@ void dhclient_task(intptr_t exinf){
 			}
 			break;
 		case DHCLIENT_STATE_BOUND:
-			LOG("dhclient: state=bound");
 			tslp_tsk_long(t1);
 			xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_REQUEST, client_addr, server_addr);
 			dhclient_alarm_start(t2-t1);
 			state = DHCLIENT_STATE_RENEWING;
+			clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_RENEWING);
 			result=dhcpmsg_send_and_wait_reply(sock, buf, buflen, xid, server_addr, true);
 			break;
 		case DHCLIENT_STATE_RENEWING:
-			LOG("dhclient: state=renewing");
 			dhclient_alarm_stop();
 			if(result == ETIMEOUT){
 				xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_REQUEST, client_addr, server_addr);
 				dhclient_alarm_start(lease-t2);
 				state = DHCLIENT_STATE_REBINDING;
+				clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_REBINDING);
 				result=dhcpmsg_send_and_wait_reply(sock, buf, buflen, xid, IPBROADCAST, true);
 			}else{
 				switch(dhcpmsg_analyze(buf, result, client_addr, server_addr, &opts)){
@@ -407,17 +425,16 @@ void dhclient_task(intptr_t exinf){
 					t2 = opts.rebindtime;
 					if(!t1) t1 = lease/2;
 					if(!t2) t2 = lease*0.8;
-					memcpy(DEFAULT_GATEWAY, opts.defaultgw, IP_ADDR_LEN);
-					memcpy(DNSSERVER, opts.dnsserver, IP_ADDR_LEN);
-					memcpy(NETMASK, opts.subnetmask, IP_ADDR_LEN);
-					memcpy(NTPSERVER, opts.ntpserver, IP_ADDR_LEN);
+					setconf(&opts);
 					memcpy(IPADDR, client_addr, IP_ADDR_LEN);
 					state = DHCLIENT_STATE_BOUND;
+					clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_BOUND);
 					dhclient_bound_event();
 					break;
 				case DHCP_MSGTYPE_NAK:
 					clear_config();
 					state = DHCLIENT_STATE_INIT;
+					clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_INIT);
 					break;
 				default:
 					dhclient_alarm_restart();
@@ -427,11 +444,11 @@ void dhclient_task(intptr_t exinf){
 			}
 			break;
 		case DHCLIENT_STATE_REBINDING:
-			LOG("dhclient: state=rebinding");
 			dhclient_alarm_stop();
 			if(result == ETIMEOUT){
 				clear_config();
 				state = DHCLIENT_STATE_INIT;
+				clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_INIT);
 			}else{
 				switch(dhcpmsg_analyze(buf, result, client_addr, server_addr, &opts)){
 				case DHCP_MSGTYPE_ACK:
@@ -440,11 +457,10 @@ void dhclient_task(intptr_t exinf){
 					t2 = opts.rebindtime;
 					if(!t1) t1 = lease/2;
 					if(!t2) t2 = lease*0.8;
-					memcpy(DEFAULT_GATEWAY, opts.defaultgw, IP_ADDR_LEN);
-					memcpy(DNSSERVER, opts.dnsserver, IP_ADDR_LEN);
-					memcpy(NETMASK, opts.subnetmask, IP_ADDR_LEN);
-					memcpy(NTPSERVER, opts.ntpserver, IP_ADDR_LEN);
+					setconf(&opts);
+					memcpy(IPADDR, client_addr, IP_ADDR_LEN);
 					state = DHCLIENT_STATE_BOUND;
+					clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_BOUND);
 					break;
 				default:
 					dhclient_alarm_restart();

@@ -36,9 +36,6 @@ void ethernet_initialize(){
 static int recvskip_counter = 0;
 
 void etherrecv_task(intptr_t exinf) {
-	act_tsk(TIMEOUT_10SEC_TASK);
-	sta_cyc(TIMEOUT_10SEC_CYC);
-
 	wait(1);
     while(true){
 		twai_sem(ETHERRECV_SEM, 10);
@@ -46,7 +43,6 @@ void etherrecv_task(intptr_t exinf) {
 			wai_sem(ETHERIO_SEM);
 			uint32_t size = ethernet_receive();
 			if(size > sizeof(ether_hdr)){
-				//LOG("--FLAME RECEIVED--");
 				char *buf = new char[size];
 				ethernet_read(buf, size);
 				sig_sem(ETHERIO_SEM);
@@ -70,11 +66,9 @@ void etherrecv_task(intptr_t exinf) {
 				flm->buf = buf;
 				switch(ntoh16(ehdr->ether_type)){
 				case ETHERTYPE_IP:
-					//LOG("IP packet received");
 					ip_process(flm, (ip_hdr*)(ehdr+1));
 					break;
 				case ETHERTYPE_ARP:
-					//LOG("ARP packet received");
 					arp_process(flm, (ether_arp*)(ehdr+1));
 					break;
 				default:

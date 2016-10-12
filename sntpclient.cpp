@@ -1,9 +1,12 @@
 #include <kernel.h>
+#include "mbed.h"
+#include "arduino_app.h"
 
 #include "sntpclient.h"
 #include "netlib.h"
 #include "util.h"
 #include "envdep.h"
+#include "netconf.h"
 
 struct sntp_hdr{
 #ifdef BIG_ENDIAN
@@ -33,6 +36,12 @@ struct sntp_hdr{
 #define SNTP_MODE_CLIENT 3
 #define SNTP_MODE_SERVER 4
 
+#define SNTP_SERVER_PORT 123
+
+void start_sntpclient(){
+	act_tsk(SNTPCLIENT_TASK);
+}
+
 int sntp_gettime(uint8_t ipaddr[], timestamp *ts, TMO timeout){
 	sntp_hdr sntpmsg = {0};
 	sntpmsg.vn = 4;
@@ -42,7 +51,7 @@ int sntp_gettime(uint8_t ipaddr[], timestamp *ts, TMO timeout){
 	int sock = socket(SOCK_DGRAM);
 	//bind(sock, 123);
 	int err;
-	if((err = sendto(sock, (char*)&sntpmsg, sizeof(sntpmsg), 0, ipaddr, 123)) < 0){
+	if((err = sendto(sock, (char*)&sntpmsg, sizeof(sntpmsg), 0, ipaddr, SNTP_SERVER_PORT)) < 0){
 		close(sock);
 		return err;
 	}
@@ -57,6 +66,19 @@ int sntp_gettime(uint8_t ipaddr[], timestamp *ts, TMO timeout){
 }
 
 void sntpclient_task(intptr_t exinf){
+	LOG("sntp client start");
 
+    timestamp t;
+    while(true){
+		if(sntp_gettime(NTPSERVER, &t, 3000) == 0){
+			//NTPタイムスタンプは1900年からの経過秒,エポックタイムは1970年からなので変換
+			//ついでに日本時間に直す
+			time_t convt = (time_t)(t.sec - 2208988800u + 32400u);
+			LOG("%s", ctime(&convt));
+			set_time(convt); //時刻を設定
+			srand((unsigned int)convt);
+			break;
+		}
+    }
 	return;
 }

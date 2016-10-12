@@ -58,13 +58,13 @@ static int search_arptable(uint32_t ipaddr, uint8_t macaddr[], hdrstack *flm){
 	return RESULT_NOT_FOUND;
 }
 
-void register_arptable(uint32_t ipaddr, uint8_t macaddr[]){
+void register_arptable(uint32_t ipaddr, uint8_t macaddr[], bool is_permanent){
 	wai_sem(ARPTBL_SEM);
-	//LOG("arp registered.");
+
 	//IPアドレスだけ登録されている（アドレス解決待ち）エントリを探す
 	for(int i=0;i<MAX_ARPTABLE;i++){
 		if(arptable[i].ipaddr == ipaddr && arptable[i].timeout>0){
-			arptable[i].timeout=ARBTBL_TIMEOUT_CLC; //延長
+			arptable[i].timeout=is_permanent?ARPTBL_PERMANENT:ARBTBL_TIMEOUT_CLC; //延長
 			if(arptable[i].pending!=NULL){
 				memcpy(arptable[i].macaddr, macaddr,ETHER_ADDR_LEN);
 				flist *ptr = arptable[i].pending;
@@ -75,7 +75,7 @@ void register_arptable(uint32_t ipaddr, uint8_t macaddr[]){
 					ethernet_send(ptr->flm);
 					ptr=ptr->next;
 				}
-				//LOG("sent pending flames.");
+
 				delete arptable[i].pending;
 				arptable[i].pending = NULL;
 			}
@@ -87,7 +87,7 @@ void register_arptable(uint32_t ipaddr, uint8_t macaddr[]){
 		delete arptable[next_register].pending;
 		arptable[next_register].pending = NULL;
 	}
-	arptable[next_register].timeout=ARBTBL_TIMEOUT_CLC;
+	arptable[next_register].timeout=is_permanent?ARPTBL_PERMANENT:ARBTBL_TIMEOUT_CLC;
 	arptable[next_register].ipaddr = ipaddr;
 	memcpy(arptable[next_register].macaddr, macaddr, ETHER_ADDR_LEN);
 	next_register = (next_register+1) % MAX_ARPTABLE;
@@ -103,7 +103,6 @@ void arp_process(ether_flame *flm, ether_arp *earp){
 		ntoh16(earp->arp_pro) != ETHERTYPE_IP ||
 		earp->arp_hln != ETHER_ADDR_LEN || earp->arp_pln != 4 ||
 		(ntoh16(earp->arp_op) != ARPOP_REQUEST && ntoh16(earp->arp_op) !=ARPOP_REPLY) ){
-		LOG("invalid arp header.");
 		goto exit;
 	}
 
@@ -111,9 +110,8 @@ void arp_process(ether_flame *flm, ether_arp *earp){
 	case ARPOP_REQUEST:
 		if(memcmp(earp->arp_tpa, IPADDR,IP_ADDR_LEN)==0){
 			//相手のIPアドレスとMACアドレスを登録
-			register_arptable(IPADDR_TO_UINT32(earp->arp_spa), earp->arp_sha);
-            //LOG("arp entry registered:");
-            //LOG("\t%s -> %s", ipaddr2str(earp->arp_spa), macaddr2str(earp->arp_sha));
+			register_arptable(IPADDR_TO_UINT32(earp->arp_spa), earp->arp_sha, false);
+
 			//パケットを改変
 			memcpy(earp->arp_tha, earp->arp_sha, ETHER_ADDR_LEN);
 			memcpy(earp->arp_tpa, earp->arp_spa, IP_ADDR_LEN);
@@ -127,7 +125,7 @@ void arp_process(ether_flame *flm, ether_arp *earp){
 		}
 		break;
 	case ARPOP_REPLY:
-		register_arptable(IPADDR_TO_UINT32(earp->arp_spa), earp->arp_sha);
+		register_arptable(IPADDR_TO_UINT32(earp->arp_spa), earp->arp_sha, false);
 		break;
 	}
 
@@ -179,7 +177,6 @@ void arp_send(hdrstack *packet, uint8_t dstaddr[], uint16_t proto){
 		//無いとき... はsearch_arptableが保留リストに登録しておいてくれる
 		//ARPリクエストを送信する
 		{
-			//LOG("arp not found");
 			ether_flame *request = make_arprequest_flame(dstaddr);
 			ethernet_send(request);
 			delete request;
