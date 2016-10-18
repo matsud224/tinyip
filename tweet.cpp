@@ -184,7 +184,7 @@ static char *make_oauth_nonce(){
 
 static char *make_oauth_timestamp(){
 	char *str = new char[21]; //64bitの場合の最大桁数
-	sprintf(str, "%l", time(NULL));
+	sprintf(str, "%u", time(NULL));
 	return str;
 }
 
@@ -238,7 +238,7 @@ int tweet(const char *status){
 		return ETLS;
 	}
 
-	if((err=wolfSSL_CTX_load_verify_locations(ctx, NULL, "/sd/certs")) != SSL_SUCCESS){
+	if((err=wolfSSL_CTX_load_verify_locations(ctx, "/sd/certs/DigiCertHighAssuranceEVRootCA.pem", NULL)) != SSL_SUCCESS){
 		LOG("Can't load CA certificates(%d).", err);
 		wolfSSL_CTX_free(ctx);
 		wolfSSL_Cleanup();
@@ -266,8 +266,8 @@ int tweet(const char *status){
 		return ETLS;
 	}
 
-	wolfSSL_SetIOReadCtx(ssl, (void*)&sock);
-	wolfSSL_SetIOWriteCtx(ssl, (void*)&sock);
+	//wolfSSL_SetIOReadCtx(ssl, (void*)&sock);
+	//wolfSSL_SetIOWriteCtx(ssl, (void*)&sock);
 
 	wolfSSL_set_fd(ssl, sock);
 
@@ -290,33 +290,36 @@ int tweet(const char *status){
 
 	static char msghdr_buf[1024];
 	char *bufptr = msghdr_buf;
-	bufptr += sprintf(msghdr_buf, "POST %s HTTP/1.1\x0d\x0a"
+	bufptr += sprintf(bufptr, "POST %s HTTP/1.1\x0d\x0a"
 								  "Authorization: OAuth ", TWITTER_STATUS_UPDATE_URI);
 	for(param *ptr=params; ptr->key!=NULL; ptr++){
 		if(ptr->value!=NULL){
 			char *encoded=percent_encode(ptr->value);
-			bufptr += sprintf(msghdr_buf, "%s=\"%s\"", ptr->key, percent_encode(ptr->value));
-			if((ptr+1)->key!=NULL)
-				bufptr += sprintf(msghdr_buf, ",");
-			else
-				bufptr += sprintf(msghdr_buf, "\x0d\x0a");
+			bufptr += sprintf(bufptr, "%s=\"%s\",", ptr->key, percent_encode(ptr->value));
 			delete [] encoded;
 		}
 	}
+	//最後のカンマを消して改行にする
+	*(bufptr-1)='\x0d';
+	*bufptr='\x0a';
+	bufptr++;
+
 	delete_param_value(params, "oauth_signature");
 	delete_param_value(params, "oauth_timestamp");
 	delete_param_value(params, "oauth_nonce");
 
 	char *st_encoded=form_urlencode(status);
-	bufptr += sprintf(msghdr_buf, "Connection: close\x0d\x0a"
+	bufptr += sprintf(bufptr, "Connection: close\x0d\x0a"
 								  "Content-Type: application/x-www-form-urlencoded\x0d\x0a"
 								  "Content-Length: %d\x0d\x0a\x0d\x0a"
-								  "status=", strlen(st_encoded));
+								  "status=", 7+strlen(st_encoded));
 	int result = 0;
 
-	int bufptr_len = strlen(bufptr);
+	LOG("--\n%s%s\n--", msghdr_buf, st_encoded);
+
+	int msghdr_len = strlen(msghdr_buf);
 	int stenc_len = strlen(st_encoded);
-	if(wolfSSL_write(ssl, bufptr, bufptr_len)!=bufptr_len
+	if(wolfSSL_write(ssl, msghdr_buf, msghdr_len)!=msghdr_len
 		|| wolfSSL_write(ssl, st_encoded, stenc_len)!=stenc_len){
 
 		LOG("wolfSSL_write() failed.");
@@ -324,10 +327,13 @@ int tweet(const char *status){
 	}
 	delete [] st_encoded;
 
-	if(recv_line(sock, msghdr_buf, sizeof(msghdr_buf), 0, 1000)>0){
+	LOG("write finished: %d", result);
+
+	if(wolfSSL_read(ssl, msghdr_buf, sizeof(msghdr_buf))>0){
 		char *httpver_str = strtok(msghdr_buf, " ");
 		char *code_str = strtok(NULL, " ");
 		int code = atoi(code_str);
+		LOG("http code=%d", code);
 		if(code/100 != 2)
 			result = EFAIL; //200番台でない
 	}else{

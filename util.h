@@ -57,7 +57,7 @@ void redled_on(void);
     (((val) & 0xff000000) >> 24) ))
 #endif // LITTLE_ENDIAN
 
-#define IPADDR_TO_UINT32(val) (*((uint32_t*)(val)))
+#define IPADDR_TO_UINT32(a) ((a)[0]|((a)[1]<<8)|((a)[2]<<16)|((a)[3]<<24))
 
 
 char *macaddr2str(uint8_t ma[]);

@@ -155,7 +155,7 @@ void user_task(intptr_t exinf){
 					}
 				}
 				*w='\0';
-				if(tweet(text)==0)
+				if(tweet(utf8text)==0)
 					mcled_change(COLOR_OFF);
 				else
 					mcled_change(COLOR_RED);

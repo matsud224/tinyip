@@ -41,7 +41,7 @@ struct sntp_hdr{
 
 #define SNTP_MAX_RETRY 5
 
-const char *NTPSERVER_FQDN = "ntp.nict.jp";
+const char *NTPSERVER_FQDN = "ntp.jst.mfeed.ad.jp";
 
 void start_sntpclient(){
 	act_tsk(SNTPCLIENT_TASK);
@@ -54,7 +54,7 @@ int sntp_gettime(uint8_t ipaddr[], timestamp *ts, TMO timeout){
 	//自身が時計を持っていないから、送信時刻は記入しない
 
 	int sock = socket(SOCK_DGRAM);
-	//bind(sock, 123);
+	bind(sock, 123);
 	int err;
 	if((err = sendto(sock, (char*)&sntpmsg, sizeof(sntpmsg), 0, ipaddr, SNTP_SERVER_PORT)) < 0){
 		close(sock);

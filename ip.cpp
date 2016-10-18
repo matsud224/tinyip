@@ -327,9 +327,9 @@ static void prep_iphdr(ip_hdr *iphdr, uint16_t len, uint16_t id,
 
 //dstaddrは書き換わるかもしれない
 void ip_routing(uint8_t dstaddr[]){
-	uint32_t myaddr=ntoh32(*(uint32_t*)IPADDR);
-	uint32_t mymask=ntoh32(*(uint32_t*)NETMASK);
-	uint32_t dst = ntoh32(*(uint32_t*)IPADDR);
+	uint32_t myaddr=IPADDR_TO_UINT32(IPADDR);
+	uint32_t mymask=IPADDR_TO_UINT32(NETMASK);
+	uint32_t dst = IPADDR_TO_UINT32(dstaddr);
 	if(dst!=0 && (myaddr&mymask)!=(dst&mymask) && memcmp(dstaddr, IPBROADCAST, IP_ADDR_LEN) != 0){
 		//同一のネットワークでない->デフォルトゲートウェイに流す
 		memcpy(dstaddr, DEFAULT_GATEWAY, IP_ADDR_LEN);
@@ -349,6 +349,11 @@ void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
 	uint32_t remainlen = datalen;
     uint16_t currentid = ip_getid(); //今回のパケットに付与する識別子
 
+    //ルーティング
+    uint8_t dstaddr_r[IP_ADDR_LEN];
+    memcpy(dstaddr_r, dstaddr, IP_ADDR_LEN); //ip_routing()で書き換えられるかもしれないのでコピー
+	ip_routing(dstaddr_r);
+
     //複数のフラグメントを送信する際、iphdr_itemはつなぐ先と内容を変えながら使い回せそうに思える
     //でも、送信はすぐに行われないかもしれない(MACアドレス解決待ち)ので使い回しはダメ
     if(sizeof(ip_hdr)+remainlen <= MTU){
@@ -357,7 +362,7 @@ void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
 		iphdr_item->buf = new char[sizeof(ip_hdr)];
 		prep_iphdr((ip_hdr*)iphdr_item->buf, sizeof(ip_hdr)+remainlen, currentid, false, 0, proto, dstaddr);
 		iphdr_item->next = data;
-		arp_send(iphdr_item, dstaddr, ETHERTYPE_IP);
+		arp_send(iphdr_item, dstaddr_r, ETHERTYPE_IP);
     }else{
 		//フラグメント化必要
 		//フラグメント化に際して、IPペイロードを分割後のパケットにコピーしないといけない
@@ -374,10 +379,7 @@ void ip_send(hdrstack *data, uint8_t *dstaddr, uint8_t proto){
 						, offset, proto, dstaddr);
 			hdrstack_cpy((char*)(((ip_hdr*)ippkt->buf)+1), data, offset, thispkt_datalen);
 
-			//ルーティング(dstaddrは書き換えられる可能性有)
-			ip_routing(dstaddr);
-
-			arp_send(ippkt, dstaddr, ETHERTYPE_IP);
+			arp_send(ippkt, dstaddr_r, ETHERTYPE_IP);
 		}
     }
 }
