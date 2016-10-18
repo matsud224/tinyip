@@ -105,6 +105,12 @@ static uint32_t get_xid(){
 	return next_xid;
 }
 
+static bool is_zeroaddr(uint8_t addr[]){
+	for(int i=0; i<IP_ADDR_LEN; i++)
+		if(addr[i] != 0) return false;
+	return true;
+}
+
 static void make_dhcpmsg_header(char msgbuf[], int len, uint32_t xid, uint8_t *ciaddr){
 	memset(msgbuf, 0, len);
 
@@ -295,11 +301,13 @@ int dhcpmsg_analyze(char buf[], int len, uint8_t *client_addr, uint8_t *server_a
 	if(len <= sizeof(dhcp_msg)+4/*magic cookie*/){
 		return -1;
 	}
-    if(client_addr)
+    if(!is_zeroaddr(dm->yiaddr))
 		memcpy(client_addr, dm->yiaddr, IP_ADDR_LEN);
-	if(server_addr)
-		memcpy(server_addr, dm->siaddr, IP_ADDR_LEN);
-	return get_dhcpmsg_options(buf+sizeof(dhcp_msg), len, opts);
+
+	int result = get_dhcpmsg_options(buf+sizeof(dhcp_msg), len, opts);
+	if(result>=0)
+		memcpy(server_addr, opts->serverid, IP_ADDR_LEN);
+	return result;
 }
 
 void clear_config(){
@@ -311,13 +319,8 @@ void clear_config(){
 }
 
 static void dhclient_bound_event(){
+	LOG("DHCP: %s",ipaddr2str(IPADDR));
 	lcd.cls(); lcd.printf("%s", ipaddr2str(IPADDR));
-}
-
-static bool is_zeroaddr(uint8_t addr[]){
-	for(int i=0; i<IP_ADDR_LEN; i++)
-		if(addr[i] != 0) return false;
-	return true;
 }
 
 static void setconf(dhcp_options *opts){
@@ -328,7 +331,6 @@ static void setconf(dhcp_options *opts){
 }
 
 void dhclient_task(intptr_t exinf){
-	clear_config();
 	SYSTIM tim; get_tim(&tim);
 	dhclient_start_time = tim;
 
@@ -360,6 +362,8 @@ void dhclient_task(intptr_t exinf){
 		case DHCLIENT_STATE_SELECTING:
 			int val;
 			if((val=dhcpmsg_analyze(buf, result, client_addr, server_addr, &opts)) == DHCP_MSGTYPE_OFFER){
+				//LOG("offered: %s", ipaddr2str(client_addr));
+				LOG("server: %s", ipaddr2str(server_addr));
 				xid = make_dhcpmsg(buf, buflen, DHCP_MSGTYPE_REQUEST, client_addr, server_addr);
 				result=dhcpmsg_send_and_wait_reply(sock, buf, buflen, xid, IPBROADCAST, false);
 				state = DHCLIENT_STATE_REQUESTING;
@@ -385,7 +389,8 @@ void dhclient_task(intptr_t exinf){
 					if(!t2) t2 = lease*0.8;
 
 					setconf(&opts);
-					memcpy(IPADDR, client_addr, IP_ADDR_LEN);
+					if(!is_zeroaddr(client_addr))
+						memcpy(IPADDR, client_addr, IP_ADDR_LEN);
 					state = DHCLIENT_STATE_BOUND;
 					clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_BOUND);
 					dhclient_bound_event();
@@ -426,7 +431,8 @@ void dhclient_task(intptr_t exinf){
 					if(!t1) t1 = lease/2;
 					if(!t2) t2 = lease*0.8;
 					setconf(&opts);
-					memcpy(IPADDR, client_addr, IP_ADDR_LEN);
+					if(!is_zeroaddr(client_addr))
+						memcpy(IPADDR, client_addr, IP_ADDR_LEN);
 					state = DHCLIENT_STATE_BOUND;
 					clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_BOUND);
 					dhclient_bound_event();
@@ -458,7 +464,8 @@ void dhclient_task(intptr_t exinf){
 					if(!t1) t1 = lease/2;
 					if(!t2) t2 = lease*0.8;
 					setconf(&opts);
-					memcpy(IPADDR, client_addr, IP_ADDR_LEN);
+					if(!is_zeroaddr(client_addr))
+						memcpy(IPADDR, client_addr, IP_ADDR_LEN);
 					state = DHCLIENT_STATE_BOUND;
 					clr_flg(DHCLIENT_FLG, 0); set_flg(DHCLIENT_FLG, DHCLIENT_TRANSION_BOUND);
 					break;

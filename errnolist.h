@@ -11,3 +11,5 @@
 #define ECONNRESET -9
 #define ECONNREFUSED -10
 #define EFAIL -11
+#define ESIGNATURE -12
+#define ETLS -13

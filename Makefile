@@ -9,7 +9,9 @@ all:
 APPLDIR += ../../wolfssl-3.9.10/
 LIBS += /usr/local/lib/libwolfssl.a
 APPLNAME = tinyip
-APPL_CXXOBJS = ethernet.o ip.o arp.o icmp.o udp.o tcp.o util.o morse.o netconf.o netlib.o sntpclient.o httpd.o ftpd.o dhclient.o nameresolver.o
+APPL_CXXOBJS = ethernet.o ip.o arp.o icmp.o udp.o tcp.o \
+				util.o morse.o netconf.o netlib.o sntpclient.o \
+				httpd.o ftpd.o dhclient.o nameresolver.o tweet.o twitter_keys.o
 USE_CXX = true
 APPL_CFG = $(APPLNAME).cfg
 

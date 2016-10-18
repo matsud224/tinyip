@@ -62,8 +62,7 @@ struct dns_rrecord {
 	uint16_t r_type;
 	uint16_t r_class;
 	uint32_t r_ttl;
-	uint32_t r_resourcelen;
-	uint8_t r_resourcedata[1];
+	uint16_t r_resourcelen;
 };
 
 
@@ -99,7 +98,7 @@ char *skip_queryname(char *ptr, char *limit){
 	while((len = *ptr++) != 0){
 		if(ptr>=limit) return limit;
 		if((len&0xC0)==0xC0)
-			ptr++; //メッセージ圧縮
+			return ptr+1; //メッセージ圧縮
 		else
 			ptr+=len;
 	}
@@ -152,24 +151,26 @@ int getaddrinfo(const char *node, struct addrinfo **res){
 	limit = buf+DNS_BUF_LEN;
     //回答レコードまで進める
     char *ptr;
-    ptr = (char*)(buf+1);
+    ptr = (char*)(dhdr+1);
     ptr = skip_queryname(ptr, limit);
     ptr += sizeof(dns_query);
 
     dns_rrecord *rcd;
+    //LOG("answer count = %d", ntoh16(dhdr->ancount));
 	for(int i=ntoh16(dhdr->ancount); i>0&&ptr<limit; i--){
 		ptr = skip_queryname(ptr, limit);
 		if(ptr+sizeof(dns_rrecord) > limit) break;
 		rcd = (dns_rrecord*)ptr;
 		if(ntoh16(rcd->r_type) == DNS_TYPE_A && ntoh16(rcd->r_class) == DNS_CLASS_INET &&
-			 ntoh32(rcd->r_resourcelen) == IP_ADDR_LEN){
+			 ntoh16(rcd->r_resourcelen) == IP_ADDR_LEN){
 			addrinfo *info = new addrinfo;
-			memcpy(info->addr, rcd->r_resourcedata, IP_ADDR_LEN);
+			memcpy(info->addr, ((char*)rcd)+10, IP_ADDR_LEN);
 			//つなぐ
 			info->next = *res;
 			*res = info;
 		}
-		ptr = (char*)(rcd+1);
+		ptr+=10; //dns_rrecordのサイズ分加算（sizeofだとパディングはいる）
+		ptr+=ntoh16(rcd->r_resourcelen);
 	}
 
 exit:

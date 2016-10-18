@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 
+#include "protohdr.h"
 
 #define SOCK_UNUSED 0
 #define SOCK_RESERVED 1
@@ -23,5 +24,6 @@ int listen(int s, int backlog);
 int accept(int s, uint8_t client_addr[], uint16_t *client_port, TMO timeout);
 int send(int s, const char *msg, uint32_t len, int flags, TMO timeout);
 int recv(int s, char *buf, uint32_t len, int flags, TMO timeout);
+int recv_line(int s, char *buf, uint32_t len, int flags, TMO timeout);
 
 int find_unusedsocket(void);

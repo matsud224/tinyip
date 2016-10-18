@@ -8,7 +8,7 @@
 #include "netlib.h"
 #include "util.h"
 
-#define HTTP_BUF_LEN 1024
+#define HTTP_BUF_LEN 4096
 
 //SDFileSystem sd(P8_5, P8_6, P8_3, P8_4, "sd");
 
@@ -53,16 +53,14 @@ static const char *get_content_type(const char *extension){
 
 static int http_respond(int s, const char *st_code_str, const char *cont_str, const char *path){
 	static char buf[HTTP_BUF_LEN];
-	//sprintf使うと改行コード改変される
-	static char httpver[] = "HTTP/1.1 ";
-	static char hdr1[] = "\r\nConnection: close\r\n"
-						 "Content-type: ";
 
-	send(s, httpver, sizeof(httpver)-1, 0, TIMEOUT_NOTUSE);
-	send(s, st_code_str, strlen(st_code_str), 0, TIMEOUT_NOTUSE);
-	send(s, hdr1, sizeof(hdr1)-1, 0, TIMEOUT_NOTUSE);
-	send(s, cont_str, strlen(cont_str), 0, TIMEOUT_NOTUSE);
-	send(s, "\r\n\r\n", 4, 0, TIMEOUT_NOTUSE);
+	sprintf(buf,
+			"HTTP/1.1 %s\x0d\x0a"
+			"Connection: close\x0d\x0a"
+			"Content-type: %s\x0d\x0a\x0d\x0a",
+			st_code_str, cont_str);
+
+	send(s, buf, strlen(buf), 0, TIMEOUT_NOTUSE);
 
 	FILE *fp = fopen(path, "rb");
 	if(fp == NULL){
@@ -103,7 +101,7 @@ void httpd_task(intptr_t exinf){
 			continue;
 		}
 
-		if(recv(s2, buf, sizeof(buf), 0, 1000)>0){
+		if(recv_line(s2, buf, sizeof(buf), 0, 200)>0){
 			char *method = strtok(buf, " ");
 			if(strncmp(method, "GET", 3) == 0){
 				char *path = strtok(NULL, " ");

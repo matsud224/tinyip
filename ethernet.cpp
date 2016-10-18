@@ -29,8 +29,6 @@ void ethernet_initialize(){
 
 	ethernet_address((char *)MACADDR);
 
-	//リンク待ち
-	dly_tsk(1000); //1秒ぐらい待ったほうがいいみたい
 }
 
 static int recvskip_counter = 0;

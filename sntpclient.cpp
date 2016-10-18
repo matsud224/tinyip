@@ -7,6 +7,7 @@
 #include "util.h"
 #include "envdep.h"
 #include "netconf.h"
+#include "nameresolver.h"
 
 struct sntp_hdr{
 #ifdef BIG_ENDIAN
@@ -38,6 +39,10 @@ struct sntp_hdr{
 
 #define SNTP_SERVER_PORT 123
 
+#define SNTP_MAX_RETRY 5
+
+const char *NTPSERVER_FQDN = "ntp.nict.jp";
+
 void start_sntpclient(){
 	act_tsk(SNTPCLIENT_TASK);
 }
@@ -68,15 +73,24 @@ int sntp_gettime(uint8_t ipaddr[], timestamp *ts, TMO timeout){
 void sntpclient_task(intptr_t exinf){
 	LOG("sntp client start");
 
+	addrinfo *dnsres = NULL;
+	if(getaddrinfo(NTPSERVER_FQDN, &dnsres)!=0 || dnsres==NULL){
+		LOG("SNTP: host not found");
+		return;
+	}
+
+	memcpy(NTPSERVER, dnsres->addr, IP_ADDR_LEN);
+
     timestamp t;
-    while(true){
-		if(sntp_gettime(NTPSERVER, &t, 3000) == 0){
+    for(int i=SNTP_MAX_RETRY; i>0; i--){
+		if(sntp_gettime(NTPSERVER, &t, 1000) == 0){
 			//NTPタイムスタンプは1900年からの経過秒,エポックタイムは1970年からなので変換
 			//ついでに日本時間に直す
 			time_t convt = (time_t)(t.sec - 2208988800u + 32400u);
 			LOG("%s", ctime(&convt));
 			set_time(convt); //時刻を設定
 			srand((unsigned int)convt);
+			sig_sem(SNTP_SEM);
 			break;
 		}
     }

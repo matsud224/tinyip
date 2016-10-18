@@ -78,3 +78,5 @@ void ipaddr_networkpart(uint8_t *dst, uint8_t *addr, uint8_t *mask);
 uint32_t hdrstack_totallen(hdrstack *target);
 void hdrstack_cpy(char *dst, hdrstack *src, uint32_t start, uint32_t len);
 
+const char *halfkana_sjis_to_utf8(char c);
+bool is_halfkana(char c);

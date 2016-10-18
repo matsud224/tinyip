@@ -244,3 +244,28 @@ int recv(int s, char *buf, uint32_t len, int flags, TMO timeout){
 		return EBADF;
 	}
 }
+
+//1行読む（最大len）。NULL終端される。
+int recv_line(int s, char *buf, uint32_t len, int flags, TMO timeout){
+	char c;
+	int err, rlen=0;
+	char *ptr=buf;
+	switch(sockets[s].type){
+	case SOCK_STREAM:
+		while(true){
+			if((err=recv(s, &c, 1, flags, timeout))<0)
+				return err;
+			*ptr=c;
+			if(c=='\n' || c=='\r' || rlen==len-1){
+				*ptr=NULL;
+				break;
+			}else{
+				rlen++;
+			}
+			ptr++;
+		}
+		return rlen;
+	default:
+		return EBADF;
+	}
+}
